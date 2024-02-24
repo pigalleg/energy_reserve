@@ -1,0 +1,51 @@
+# using Plots
+# using PrettyTables
+# using VegaLite
+using Debugger
+include("./utils.jl")
+include("./unit_commitment.jl")
+# ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
+
+function main()
+
+    gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
+    gen_df = pre_process_generators_data(gen_info, fuels)
+    storage_df = pre_process_storage_data(storage_info)
+
+    # A spring day
+    n=100
+    T_period = (n*24+1):((n+1)*24)
+
+    # High solar case: 3,500 MW
+    gen_df_sens = copy(gen_df)
+    gen_df_sens[gen_df_sens.resource .== "solar_photovoltaic",
+        :existing_cap_mw] .= 3500
+    gen_variable = pre_process_gen_variable(gen_df_sens, gen_variable_info)
+
+    # Filtering data with timeseries according to T_period
+    gen_variable_multi = gen_variable[in.(gen_variable.hour,Ref(T_period)),:];
+    loads_multi = loads[in.(loads.hour,Ref(T_period)),:];
+
+    reserve = DataFrame(
+        hour = loads[in.(loads.hour, Ref(T_period)), :hour],
+        up = 300 .+ loads[in.(loads.hour,Ref(T_period)), :demand].*0.05,
+        down = loads[in.(loads.hour, Ref(T_period)), :demand].*0.05)
+
+    energy_reserve = [(row_1.hour, row_2.hour, row_1.up*(row_1.hour == row_2.hour), row_1.down*(row_1.hour == row_2.hour)) for row_1 in eachrow(reserve), row_2 in eachrow(reserve) if row_1.hour <= row_2.hour]
+    energy_reserve = DataFrame(energy_reserve)
+    energy_reserve = rename(energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :up, :4 => :down,)
+
+
+    solution = solve_unit_commitment(
+        gen_df_sens,
+        loads_multi,
+        gen_variable_multi,
+        0.001,
+        ramp_constraints = true,
+        storage = storage_df)
+    println(solution.generation)
+    println(solution.storage)
+end
+
+
+main()

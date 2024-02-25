@@ -2,7 +2,7 @@
 # using PrettyTables
 # using VegaLite
 using Debugger
-# using Infiltrator
+using Infiltrator
 include("./utils.jl")
 include("./unit_commitment.jl")
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
@@ -27,14 +27,12 @@ loads_multi = loads[in.(loads.hour,Ref(T_period)),:];
 
 reserve = DataFrame(
     hour = loads[in.(loads.hour, Ref(T_period)), :hour],
-    up = 300 .+ loads[in.(loads.hour,Ref(T_period)), :demand].*0.05,
-    down = loads[in.(loads.hour, Ref(T_period)), :demand].*0.05)
+    reserve_up_MW = 300 .+ loads[in.(loads.hour,Ref(T_period)), :demand].*0.05,
+    reserve_down_MW = loads[in.(loads.hour, Ref(T_period)), :demand].*0.05)
 
-energy_reserve = [(row_1.hour, row_2.hour, row_1.up*(row_1.hour == row_2.hour), row_1.down*(row_1.hour == row_2.hour)) for row_1 in eachrow(reserve), row_2 in eachrow(reserve) if row_1.hour <= row_2.hour]
+energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(reserve), row_2 in eachrow(reserve) if row_1.hour <= row_2.hour]
 energy_reserve = DataFrame(energy_reserve)
-energy_reserve = rename(energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :up, :4 => :down,)
-
-
+energy_reserve = rename(energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
 
 function main()
     solution = solve_unit_commitment(
@@ -44,9 +42,12 @@ function main()
         0.001,
         ramp_constraints = true,
         storage = storage_df,
+        reserve = reserve,
         enriched_solution = true)
     println(solution.generation)
     println(solution.storage)
+    println(solution.demand)
+    # @infiltrate
 end
 
 main()

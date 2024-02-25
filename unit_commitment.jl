@@ -3,22 +3,7 @@ using JuMP
 using Gurobi
 using DataFrames
 # using HiGHS
-# const GRB_ENV   = Gurobi.Env()
 
-# const GRB_ENV_REF = Ref{Gurobi.Env}()
-# function __init__()
-#     global GRB_ENV_REF
-#     GRB_ENV_REF[] = Gurobi.Env()
-#     return
-# end
-# using HiGHS
-
-#=
-Function to convert JuMP outputs (technically, AxisArrays) with two-indexes to a dataframe
-Inputs:
-    var -- JuMP AxisArray (e.g., value.(GEN))
-Reference: https://jump.dev/JuMP.jl/v0.19/containers/
-=#
 function value_to_df_2dim(var)
     solution = DataFrame(var.data, :auto)
     ax1 = var.axes[1]
@@ -380,6 +365,7 @@ function get_solution(model, gen_variable)
             soe = value_to_df_2dim(value.(model[:SOE])))
         )
     end
+    
     return out
 end
 
@@ -408,6 +394,7 @@ function to_enriched_df(solution, gen_df; kwargs...)
         )
         out = merge(out, (storage = storage,))
     end
+    
     return out
 end 
 
@@ -433,6 +420,7 @@ function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
         add_storage(uc, kwargs[:storage], loads, gen_df)
     end
     optimize!(uc)
+    # @infiltrate
     solution = get_solution(uc, gen_variable)
     if haskey(kwargs,:enriched_solution)
         if kwargs[:enriched_solution] == true

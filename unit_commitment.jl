@@ -4,44 +4,7 @@ using Gurobi
 using DataFrames
 # using HiGHS
 include("./utils.jl")
-
-function value_to_df(var)
-    if var isa JuMP.Containers.DenseAxisArray
-        return value_to_df_2dim(var)
-    elseif var isa JuMP.Containers.SparseAxisArray
-        return value_to_df_multidim(var, [:r_id, :hour_i, :hour])
-    else
-        print("Could not identify type of output. Returnin initial variable...")
-        return var
-    end
-end
-
-function value_to_df_multidim(var, new_index_list = nothing)
-    size_of_indices = length(first(keys(value.(var).data)))
-    indices = [Symbol("index_"*string(i)) for i in 1:size_of_indices]
-    out = DataFrame(index = collect(keys(value.(var).data)), value = collect(values(value.(var).data)))
-    transform!(out, :index .=> [ByRow(x -> x[i]) .=> indices[i] for i in 1:size_of_indices])
-    select!(out, Not(:index))
-    if !isnothing(new_index_list)
-        for i in 1:length(new_index_list)
-            rename!(out, indices[i] => new_index_list[i])
-        end
-    end
-    return out
-end
-
-function value_to_df_2dim(var)
-    solution = DataFrame(value.(var).data, :auto)
-    ax1 = value.(var).axes[1]
-    ax2 = value.(var).axes[2]
-    cols = names(solution)
-    insertcols!(solution, 1, :r_id => ax1)
-    solution = stack(solution, Not(:r_id), variable_name=:hour)
-    solution.hour = foldl(replace, [cols[i] => ax2[i] for i in 1:length(ax2)], init=solution.hour)
-    #   rename!(solution, :value => :gen)
-    solution.hour = convert.(Int64,solution.hour)
-    return solution
-end
+include("./post_processing.jl")
 
 function create_generators_sets(gen_df)
     # Thermal resources for which unit commitment constraints apply
@@ -223,38 +186,38 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df)
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
     T, _____ =  create_time_sets(loads)
     @variables(model, begin
-        RESUP[G_thermal, j in T, t in T; j <= t] >= 0
-        RESDN[G_thermal, j in T, t in T; j <= t] >= 0
+        ERESUP[G_thermal, j in T, t in T; j <= t] >= 0
+        ERESDN[G_thermal, j in T, t in T; j <= t] >= 0
     end)
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, EnergyResUpCap[i in G_thermal, j in T, t in T; j <= t],
-        RESUP[i, j, t] <= sum(
+        ERESUP[i, j, t] <= sum(
             COMMIT[i,tt]*gen_df[gen_df.r_id .== i, :existing_cap_mw][1] - GEN[i,tt] for tt in T if (tt >= j)&(tt <= t)
         )
     )
     @constraint(model, EnergyResDownCap[i in G_thermal, j in T, t in T; j <= t],
-        RESDN[i, j, t] <= sum(
+        ERESDN[i, j, t] <= sum(
             GEN[i,tt] - COMMIT[i,tt]*gen_df[gen_df.r_id .==i,:existing_cap_mw][1]*gen_df[gen_df.r_id .==i,:min_power][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
     # (2) Reserves limited by ramp rates
     @constraint(model, EnergyResUpRamp[i in G_thermal, j in T, t in T; j <= t],
-        RESUP[i, j, t] <=  sum(
+        ERESUP[i, j, t] <=  sum(
             gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_up_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
     @constraint(model, EnergyResDnRamp[i in G_thermal, j in T, t in T; j <= t],
-        RESDN[i, j, t] <=  sum(
+        ERESDN[i, j, t] <=  sum(
             gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
     # (3) Overall reserve requirements
     @constraint(model, EnergyResUpRequirement[j in T, t in T; j <= t],
-        sum(RESUP[i, j, t] for i in G_thermal) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_up_MW][1]
+        sum(ERESUP[i, j, t] for i in G_thermal) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_up_MW][1]
     )
  
     @constraint(model, EnerResDnRequirement[j in T, t in T; j <= t],
-        sum(RESDN[i, j, t] for i in G_thermal) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_down_MW][1]
+        sum(ERESDN[i, j, t] for i in G_thermal) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_down_MW][1]
     )
 
 end
@@ -333,59 +296,9 @@ function add_storage(model, storage, loads, gen_df)
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :RESUP, :RESDN]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :RESUP, :RESDN, :ERESUP, :ERESDN]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
-
-function add_reserve(enriched_solution_value, solution)
-    # @infiltrate
-    reserve = innerjoin(
-        rename(solution.RESUP, :value => :reserve_up_MW),
-        rename(solution.RESDN, :value => :reserve_down_MW),
-        on = [:r_id, :hour]
-    )
-    # leftjoin allows to add reserve to frame in the left
-    return leftjoin(enriched_solution_value, reserve, on = [:r_id, :hour])
-end
-
-function to_enriched_df(solution, gen_df, loads, gen_variable; kwargs...)
-    #TODO: deal with missing values
-    # Curtailment calculation
-    curtail = innerjoin(gen_variable, solution.GEN, on = [:r_id, :hour])
-    curtail.value = curtail.cf .* curtail.existing_cap_mw - curtail.value
-    generation = outerjoin(
-        outerjoin(
-            rename(solution.GEN, :value => :production_MW),
-            rename(curtail[!,[:r_id, :hour, :value]], :value => :curtailment_MW), 
-            on = [:r_id, :hour]
-        ),
-        gen_df[!,[:r_id, :resource, :gen_full]],
-        on = :r_id
-    )
-    out = Dict(:generation => generation)
-    if haskey(kwargs, :storage)
-        storage = innerjoin(
-            rename(solution.CH, :value => :charge_MW),
-            rename(solution.DIS, :value => :discharge_MW),
-            rename(solution.SOE, :value => :SOE_MWh),
-            on = [:r_id, :hour]
-        )
-        storage = innerjoin(
-            storage,
-            kwargs[:storage][!,[:r_id, :resource, :storage_full]],
-            on = :r_id
-        )
-        out[:storage] = storage
-    end
-    if haskey(solution, :RESUP) & haskey(solution, :RESDN)
-        for (key,value) in out out[key] = add_reserve(value, solution) end
-    end
-    demand =  rename(loads, :demand => :demand_MW)
-    demand.r_id .= missing
-    demand.resource .= "total"
-    out[:demand] = demand
-    return NamedTuple(out)
-end 
 
 function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...) 
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)

@@ -42,14 +42,16 @@ function main()
         0.001,
         ramp_constraints = true,
         storage = storage_df,
-        energy_reserve = requested_energy_reserve,
         # reserve = requested_reserve,
+        energy_reserve = requested_energy_reserve,
+        
         enriched_solution = true)
     # @infiltrate
     println(solution.generation)
     println(solution.storage)
     println(solution.demand)
+    # println(solution.re)
     # 
 end
 
-@infiltrate main()
+main()

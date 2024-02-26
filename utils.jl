@@ -26,10 +26,10 @@ end
 
 
 function pre_process_gen_variable(gen_df, gen_variable_info)
-  aux = stack(gen_variable_info, Not(:hour), variable_name=:gen_full, value_name=:cf)
+  aux = stack(gen_variable_info, Not(:hour), variable_name=:full_id, value_name=:cf)
   return innerjoin(aux,
-    gen_df[gen_df.is_variable .== 1,[:r_id, :gen_full, :existing_cap_mw]],
-    on = :gen_full)
+    gen_df[gen_df.is_variable .== 1,[:r_id, :full_id, :existing_cap_mw]],
+    on = :full_id)
 end
 
 function pre_process_generators_data(gen_info,  fuels)
@@ -46,7 +46,7 @@ function pre_process_generators_data(gen_info,  fuels)
 
   # create full name of generator (including geographic location and cluster number)
   #  for use with variable generation dataframe
-  gen_df.gen_full = lowercase.(gen_df.region .* "_" .* gen_df.resource .* "_" .* string.(gen_df.cluster) .* ".0");
+  gen_df.full_id = lowercase.(gen_df.region .* "_" .* gen_df.resource .* "_" .* string.(gen_df.cluster) .* ".0");
 
   # remove generators with no capacity (e.g. new build options that we'd use if this was capacity expansion problem)
   gen_df = gen_df[gen_df.existing_cap_mw .> 0,:]
@@ -55,7 +55,7 @@ end
 
 function pre_process_storage_data(storage_info)
   df = copy(storage_info)
-  df.storage_full = lowercase.(storage_info.region .* "_" .* storage_info.resource .* "_" .* string.(storage_info.cluster) .* ".0");
+  df.full_id = lowercase.(storage_info.region .* "_" .* storage_info.resource .* "_" .* string.(storage_info.cluster) .* ".0");
   return df
 end
 

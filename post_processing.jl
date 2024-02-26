@@ -1,5 +1,7 @@
 using DataFrames
 
+FIELD_FOR_ENRICHING = [:r_id, :resource, :full_id]
+
 function value_to_df(var)
     if var isa JuMP.Containers.DenseAxisArray
         return value_to_df_2dim(var)
@@ -61,38 +63,40 @@ end
 #     )
 #     return outerjoin(enriched_solution_value, reserve, on = [:r_id, :hour])
 # end
-function get_enriched_energy_reserve(solution, gen_df)
+function get_enriched_energy_reserve(solution, data)
     return leftjoin(
         innerjoin(
             rename(solution.ERESUP, :value => :reserve_up_MW),
             rename(solution.ERESDN, :value => :reserve_down_MW),
             on = [:r_id, :hour, :hour_i]
-        ),gen_df[!,[:r_id, :resource, :gen_full]],
+        ),
+        data[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
 end
 
-function get_enriched_reserve(solution, gen_df)
+function get_enriched_reserve(solution, data)
     return leftjoin(
         innerjoin(
             rename(solution.RESUP, :value => :reserve_up_MW),
             rename(solution.RESDN, :value => :reserve_down_MW),
             on = [:r_id, :hour]
-        ),gen_df[!,[:r_id, :resource, :gen_full]],
+        ),
+        data[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
 end
 
-function get_enriched_storage(solution, storage)
-    aux = innerjoin(
-        rename(solution.CH, :value => :charge_MW),
-        rename(solution.DIS, :value => :discharge_MW),
-        rename(solution.SOE, :value => :SOE_MWh),
-        on = [:r_id, :hour]
-    )
-    return innerjoin(
-        aux,
-        storage[!,[:r_id, :resource, :storage_full]],
+function get_enriched_storage(solution, data)
+    aux = 
+    return leftjoin(
+        innerjoin(
+            rename(solution.CH, :value => :charge_MW),
+            rename(solution.DIS, :value => :discharge_MW),
+            rename(solution.SOE, :value => :SOE_MWh),
+            on = [:r_id, :hour]
+        ),
+        data[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
 end
@@ -106,7 +110,7 @@ function get_enriched_generation(solution, gen_df, gen_variable)
             rename(curtail[!,[:r_id, :hour, :value]], :value => :curtailment_MW), 
             on = [:r_id, :hour]
         ),
-        gen_df[!,[:r_id, :resource, :gen_full]],
+        gen_df[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
     replace!(aux.curtailment_MW, missing => 0)
@@ -124,36 +128,17 @@ function to_enriched_df(solution, gen_df, loads, gen_variable; kwargs...)
     #TODO: deal with missing values
     # Curtailment calculation
     out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
+    data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching
     if haskey(kwargs, :storage)
-        out[:storage] = get_enriched_storage(solution, kwargs[:storage])
+        append!(data, kwargs[:storage][!,FIELD_FOR_ENRICHING] )
+        out[:storage] = get_enriched_storage(solution, data)
     end
-        # storage = innerjoin(
-        #     rename(solution.CH, :value => :charge_MW),
-        #     rename(solution.DIS, :value => :discharge_MW),
-        #     rename(solution.SOE, :value => :SOE_MWh),
-        #     on = [:r_id, :hour]
-        # )
-        # storage = innerjoin(
-        #     storage,
-        #     kwargs[:storage][!,[:r_id, :resource, :storage_full]],
-        #     on = :r_id
-        # )
-        
     if haskey(solution, :RESUP) & haskey(solution, :RESDN)
-        out[:reserve] =  get_enriched_reserve(solution, gen_df)
+        out[:reserve] =  get_enriched_reserve(solution, data)
     end
     if haskey(solution, :ERESUP) & haskey(solution, :ERESDN)
-        out[:energy_reserve] =  get_enriched_energy_reserve(solution, gen_df)
+        out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
     end
-    # if haskey(solution, :RESUP) & haskey(solution, :RESDN)
-    #     for (key,value) in out out[key] = add_reserve_to_solution(value, solution) end
-    # end
-
-    # if haskey(solution, :ERESUP) & haskey(solution, :ERESDN)
-    #     for (key,value) in out out[key] = add_energy_reserve_to_solution(value, solution) end
-    # end
-
     out[:demand] = get_enriched_demand(loads)
-
     return NamedTuple(out)
 end 

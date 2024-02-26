@@ -44,9 +44,8 @@ function main()
         storage = storage_df,
         # reserve = requested_reserve,
         energy_reserve = requested_energy_reserve,
-        
         enriched_solution = true)
-    # @infiltrate
+    @infiltrate
     println(solution.generation)
     println(solution.storage)
     println(solution.demand)

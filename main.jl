@@ -25,14 +25,14 @@ gen_variable = pre_process_gen_variable(gen_df_sens, gen_variable_info)
 gen_variable_multi = gen_variable[in.(gen_variable.hour,Ref(T_period)),:];
 loads_multi = loads[in.(loads.hour,Ref(T_period)),:];
 
-reserve = DataFrame(
+requested_reserve = DataFrame(
     hour = loads[in.(loads.hour, Ref(T_period)), :hour],
     reserve_up_MW = 300 .+ loads[in.(loads.hour,Ref(T_period)), :demand].*0.05,
     reserve_down_MW = loads[in.(loads.hour, Ref(T_period)), :demand].*0.05)
 
-energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(reserve), row_2 in eachrow(reserve) if row_1.hour <= row_2.hour]
-energy_reserve = DataFrame(energy_reserve)
-energy_reserve = rename(energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
+requested_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(requested_reserve), row_2 in eachrow(requested_reserve) if row_1.hour <= row_2.hour]
+requested_energy_reserve = DataFrame(requested_energy_reserve)
+requested_energy_reserve = rename(requested_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
 
 function main()
     solution = solve_unit_commitment(
@@ -42,13 +42,14 @@ function main()
         0.001,
         ramp_constraints = true,
         storage = storage_df,
-        reserve = reserve,
+        energy_reserve = requested_energy_reserve,
+        # reserve = requested_reserve,
         enriched_solution = true)
-    @infiltrate
+    # @infiltrate
     println(solution.generation)
     println(solution.storage)
     println(solution.demand)
     # 
 end
 
-main()
+@infiltrate main()

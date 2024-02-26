@@ -4,6 +4,7 @@ using Gurobi
 using DataFrames
 # using HiGHS
 using Infiltrator
+include("./utils.jl")
 function value_to_df_2dim(var)
     solution = DataFrame(var.data, :auto)
     ax1 = var.axes[1]
@@ -309,31 +310,6 @@ end
 function get_solution_variables(model)
     variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :RESUP, :RESDN]
     return NamedTuple(k => value_to_df_2dim(value.(model[k])) for k in intersect(keys(object_dictionary(model)), variables_to_get))
-
-    # objective_value(model)
-    # termination_status(model)
-    
-    
-    # optimize!(model)
-    # gen = value_to_df_2dim(value.(model[:GEN]))
-    # commit = value_to_df_2dim(value.(model[:COMMIT]))
-    
-    # Curtailment calculation
-    # curtail = innerjoin(gen_variable, out.GEN, on = [:r_id, :hour])
-    # curtail.value = curtail.cf .* curtail.existing_cap_mw - curtail.value
-    # select!(curtail, [:r_id, :hour, :value])
-    # out[:curtail] = 
-    # Return the solution parameters and objective
-    # out = (gen, commit, curtail, _ = objective_value(model), __ = termination_status(model))
-    # if haskey(model,:CH) & haskey(model,:DIS) & haskey(model,:SOE)
-    #     return merge(out,(
-    #         ch = value_to_df_2dim(value.(model[:CH])),
-    #         dis = value_to_df_2dim(value.(model[:DIS])),
-    #         soe = value_to_df_2dim(value.(model[:SOE])))
-    #     )
-    # end
-    
-    # return out
 end
 
 function add_reserve(enriched_solution_value, solution)
@@ -348,6 +324,7 @@ end
 
 function to_enriched_df(solution, gen_df, loads, gen_variable; kwargs...)
     #TODO: deal with missing values
+    
     # Curtailment calculation
     curtail = innerjoin(gen_variable, solution.GEN, on = [:r_id, :hour])
     curtail.value = curtail.cf .* curtail.existing_cap_mw - curtail.value
@@ -373,7 +350,6 @@ function to_enriched_df(solution, gen_df, loads, gen_variable; kwargs...)
             kwargs[:storage][!,[:r_id, :resource, :storage_full]],
             on = :r_id
         )
-        # storage =  add_reserve(storage, solution)
         out[:storage] = storage
     end
     if haskey(solution, :RESUP) & haskey(solution, :RESDN)

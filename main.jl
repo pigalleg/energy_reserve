@@ -44,10 +44,11 @@ function main()
         storage = storage_df,
         reserve = reserve,
         enriched_solution = true)
+    @infiltrate
     println(solution.generation)
     println(solution.storage)
     println(solution.demand)
-    # @infiltrate
+    # 
 end
 
 main()

@@ -362,16 +362,12 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage =
 
     # (3) Storage reserve
     if !isnothing(storage)
-        # @constraint(model, ResUpStorage[s in S, t in T],
-        #     SOE[s,t] - RESUP[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1] >=  - storage[storage.r_id .== s,:min_energy_mwh][1] #TODO: include delta_T
-        # )
-        # @constraint(model, ResDownStorage[s in S, t in T],
-        #     RESUP[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] + SOE[s,t] <= storage[storage.r_id .== s,:max_energy_mwh][1] #TODO: include delta_T
-        # )
-        # if storage_envelopes
-        #     println("Adding storage envelopes...")
-        #     add_envelope_constraints(model, loads, storage)
-        # end
+        @constraint(model, EnrgyResUpStorage[s in S, j in T, t in T; j <= t],
+            ERESUP[s, j, t] - (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] <= 0 #TODO: include delta_T
+        )
+        @constraint(model, EnergyResDownStorage[s in S, j in T, t in T; j <= t],
+            ERESUP[s, j, t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
+        )
     end
 
     # (4) Overall reserve requirements
@@ -411,7 +407,7 @@ function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     end
     if haskey(kwargs,:energy_reserve)
         println("Adding energy reserve constraints...")
-        add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df)
+        add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df, storage)
     end
     
     optimize!(uc)

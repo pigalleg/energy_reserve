@@ -41,7 +41,7 @@ function value_to_df_2dim(var)
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :RESUP, :RESDN, :ERESUP, :ERESDN]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
@@ -88,17 +88,21 @@ function get_enriched_reserve(solution, data)
 end
 
 function get_enriched_storage(solution, data)
-    aux = 
-    return leftjoin(
-        innerjoin(
-            rename(solution.CH, :value => :charge_MW),
-            rename(solution.DIS, :value => :discharge_MW),
-            rename(solution.SOE, :value => :SOE_MWh),
-            on = [:r_id, :hour]
-        ),
-        data[!,FIELD_FOR_ENRICHING],
-        on = :r_id
+    aux = innerjoin(
+        rename(solution.CH, :value => :charge_MW),
+        rename(solution.DIS, :value => :discharge_MW),
+        rename(solution.SOE, :value => :SOE_MWh),
+        on = [:r_id, :hour]
     )
+    if haskey(solution, :SOEUP) & haskey(solution, :SOEDN)
+        aux = innerjoin(
+            aux,
+            rename(solution.SOEUP, :value => :envelope_up_MWh),
+            rename(solution.SOEDN, :value => :envelope_down_MWh),
+            on = [:r_id, :hour]
+        )
+    end
+    return leftjoin(aux, data[!,FIELD_FOR_ENRICHING], on = :r_id)
 end
 
 function get_enriched_generation(solution, gen_df, gen_variable)

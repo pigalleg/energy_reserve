@@ -21,7 +21,7 @@ function read_data()
   end
   to_GMT(gen_variable)
   to_GMT(loads)
-  return gen_info, fuels, loads, gen_variable, storage_info
+  return gen_info, fuels, loads, identity.(gen_variable), storage_info
 end
 
 
@@ -50,7 +50,7 @@ function pre_process_generators_data(gen_info,  fuels)
 
   # remove generators with no capacity (e.g. new build options that we'd use if this was capacity expansion problem)
   gen_df = gen_df[gen_df.existing_cap_mw .> 0,:]
-  return gen_df
+  return identity.(gen_df)
 end
 
 function pre_process_storage_data(storage_info)

@@ -2,7 +2,7 @@
 # using PrettyTables
 # using VegaLite
 using Debugger
-using Infiltrator
+# using Infiltrator
 include("./utils.jl")
 include("./unit_commitment.jl")
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
@@ -35,22 +35,24 @@ requested_energy_reserve = DataFrame(requested_energy_reserve)
 requested_energy_reserve = rename(requested_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
 
 function main()
-    solution = solve_unit_commitment(
+   return solve_unit_commitment(
         gen_df_sens,
         loads_multi,
         gen_variable_multi,
         0.001,
         ramp_constraints = true,
         storage = storage_df,
-        # reserve = requested_reserve,
-        energy_reserve = requested_energy_reserve,
-        enriched_solution = true)
-    @infiltrate
-    println(solution.generation)
-    println(solution.storage)
-    println(solution.demand)
+        reserve = requested_reserve,
+        # energy_reserve = requested_energy_reserve,
+        enriched_solution = true,
+        storage_envelopes = true)
+    # @infiltrate
+    # println(solution.generation)
+    # println(solution.storage)
+    # println(solution.demand)
     # println(solution.re)
     # 
 end
 
-main()
+solution = main()
+print("end")

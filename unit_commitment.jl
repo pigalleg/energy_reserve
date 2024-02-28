@@ -251,13 +251,13 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
     @constraint(model, ResDnRamp[i in G_thermal, t in T],
         RESDN[i,t] <=  gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1] )
 
-    # (4) Storage reserve
+    # (3) Storage reserve
     if !isnothing(storage)
         @constraint(model, ResUpStorage[s in S, t in T],
-            SOE[s,t] - RESUP[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1] >=  - storage[storage.r_id .== s,:min_energy_mwh][1] #TODO: include delta_T
+            RESUP[s,t] - (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] <= 0 #TODO: include delta_T
         )
         @constraint(model, ResDownStorage[s in S, t in T],
-            RESUP[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] + SOE[s,t] <= storage[storage.r_id .== s,:max_energy_mwh][1] #TODO: include delta_T
+            RESUP[s,t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
         )
         if storage_envelopes
             println("Adding storage envelopes...")
@@ -265,7 +265,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
         end
     end
 
-    # (3) Overall reserve requirements
+    # (4) Overall reserve requirements
     @constraint(model, ResUpRequirement[t in T],
         sum(RESUP[i,t] for i in G_reserve) >= reserve[reserve.hour .== t,:reserve_up_MW][1]
     )
@@ -319,14 +319,23 @@ function add_envelope_constraints(model, loads, storage)
     )
 end
 
-function add_energy_reserve_constraints(model, reserve, loads, gen_df)
+function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage = nothing)
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
     T, _____ =  create_time_sets(loads)
+
+    G_reserve = G_thermal
+    if !isnothing(storage)
+        S = create_storage_sets(storage)
+        G_reserve = union(G_thermal, S)
+        SOE = model[:SOE]
+
+    end
+
     @variables(model, begin
-        ERESUP[G_thermal, j in T, t in T; j <= t] >= 0
-        ERESDN[G_thermal, j in T, t in T; j <= t] >= 0
+        ERESUP[G_reserve, j in T, t in T; j <= t] >= 0
+        ERESDN[G_reserve, j in T, t in T; j <= t] >= 0
     end)
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, EnergyResUpCap[i in G_thermal, j in T, t in T; j <= t],
@@ -350,13 +359,28 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df)
             gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
-    # (3) Overall reserve requirements
+
+    # (3) Storage reserve
+    if !isnothing(storage)
+        # @constraint(model, ResUpStorage[s in S, t in T],
+        #     SOE[s,t] - RESUP[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1] >=  - storage[storage.r_id .== s,:min_energy_mwh][1] #TODO: include delta_T
+        # )
+        # @constraint(model, ResDownStorage[s in S, t in T],
+        #     RESUP[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] + SOE[s,t] <= storage[storage.r_id .== s,:max_energy_mwh][1] #TODO: include delta_T
+        # )
+        # if storage_envelopes
+        #     println("Adding storage envelopes...")
+        #     add_envelope_constraints(model, loads, storage)
+        # end
+    end
+
+    # (4) Overall reserve requirements
     @constraint(model, EnergyResUpRequirement[j in T, t in T; j <= t],
-        sum(ERESUP[i, j, t] for i in G_thermal) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_up_MW][1]
+        sum(ERESUP[i, j, t] for i in G_reserve) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_up_MW][1]
     )
  
     @constraint(model, EnerResDnRequirement[j in T, t in T; j <= t],
-        sum(ERESDN[i, j, t] for i in G_thermal) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_down_MW][1]
+        sum(ERESDN[i, j, t] for i in G_reserve) >= reserve[(reserve.i_hour .== j).&(reserve.t_hour .== t),:reserve_down_MW][1]
     )
 
 end

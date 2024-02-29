@@ -1,4 +1,4 @@
-
+# TODO: once SOE and SOE envelopes are allowed to evolve from T[1], RES and ERES should capture that
 using JuMP
 using Gurobi
 using DataFrames
@@ -146,6 +146,7 @@ function add_storage(model, storage, loads, gen_df)
     @constraint(model, SupplyDemandBalance[t in T], 
         sum(GEN[i,t] for i in G) - sum(CH[s,t] - DIS[s,t] for s in S) == loads[loads.hour .== t,:demand][1]
     )
+
     # Charging-discharging logic
     @constraint(model, ChargeLogic[s in S, t in T],
         CH[s,t] <= big_M*M[s,t]
@@ -153,7 +154,8 @@ function add_storage(model, storage, loads, gen_df)
     @constraint(model, DischargeLogic[s in S, t in T],
         DIS[s,t] <= big_M*(1-M[s,t])
     )
-
+    
+    #TODO: Include SOC[s,T[1]] in storage evolution with an aditional constraint
     # Storage constraints
     @constraint(model, SOEEvol[s in S, t in T[2:end]], 
         SOE[s,t] - (SOE[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
@@ -177,8 +179,9 @@ function add_storage(model, storage, loads, gen_df)
     @constraint(model, DISMin[s in S, t in T],
         DIS[s,t] >= storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1] #TODO: calculation should be done at input file
     )
+    #TODO: once storage SOC[s,T[1]]is defined. T[1] can be removed
     # SOE_T_initial = SOE_T_final
-    @constraint(model, SOEO_SOEFinal[s in S, t = [T[1],T[end]]],
+    @constraint(model, SOEO_SOEFinal[s in S, t = [T[1],T[end]]], #TODO: replace by T
         SOE[s,t] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
 
@@ -257,8 +260,15 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
             RESUP[s,t] - (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] <= 0 #TODO: include delta_T
         )
         @constraint(model, ResDownStorage[s in S, t in T],
-            RESUP[s,t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
+            RESDN[s,t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
         )
+        # # Since power is open at the left, we need to impose initial reserve to be zero
+        # @constraint(model, RESUP_0[s in S],
+        # RESUP[s,T[1]] == 0
+        # )
+        # @constraint(model, RESDN_0[s in S],
+        # RESDN[s,T[1]] == 0
+        # )
         if storage_envelopes
             println("Adding storage envelopes...")
             add_envelope_constraints(model, loads, storage)
@@ -286,6 +296,7 @@ function add_envelope_constraints(model, loads, storage)
         SOEUP[S, T] >= 0
         SOEDN[S, T] >= 0
     end)
+    #TODO: allow SOE to evolve at T[1]
     @constraint(model, SOEUpEvol[s in S, t in T[2:end]], 
         SOEUP[s,t] - (SOEUP[s,t-1] + (CH[s,t] + RESDN[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
@@ -293,6 +304,7 @@ function add_envelope_constraints(model, loads, storage)
         SOEDN[s,t] - (SOEDN[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + RESUP[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
     
+    #TODO: once SOE evolves from T[1], this constraint will be no longer needed
     # SOEUP_T_initial = SOE_T_initial
     @constraint(model, SOEUP_0[s in S],
         SOEUP[s,T[1]] == SOE[s,T[1]]

@@ -35,11 +35,24 @@ requested_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.
 requested_energy_reserve = DataFrame(requested_energy_reserve)
 requested_energy_reserve = rename(requested_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
 
+
+config = (
+    ramp_constraints = true,
+    storage = storage_df,
+    reserve = requested_reserve,
+    # energy_reserve = requested_energy_reserve,
+    enriched_solution = true,
+    storage_envelopes = false
+)
+
+
+
+
 solution  = solve_unit_commitment(
     gen_df_sens,
     loads_multi,
     gen_variable_multi,
-    0.001,
+    0.001;
     ramp_constraints = true,
     storage = storage_df,
     reserve = requested_reserve,

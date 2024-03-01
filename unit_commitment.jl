@@ -423,10 +423,10 @@ function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     end
     
     optimize!(uc)
-    solution = get_solution_variables(uc)
+    solution = get_solution(uc)
     if haskey(kwargs,:enriched_solution)
         if kwargs[:enriched_solution] == true
-            return to_enriched_df(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
+            return enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
         end
     end
     return solution

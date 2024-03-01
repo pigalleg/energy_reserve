@@ -40,29 +40,40 @@ function value_to_df_2dim(var)
     return solution
 end
 
+function get_solution(model)
+    return merge(
+        get_solution_variables(model),
+        (cost = objective_value(model), termination_status = termination_status(model))
+    )
+end
+
 function get_solution_variables(model)
     variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
-# function add_reserve_to_solution(enriched_solution_value, solution)
-#     reserve = innerjoin(
-#         rename(solution.RESUP, :value => :reserve_up_MW),
-#         rename(solution.RESDN, :value => :reserve_down_MW),
-#         on = [:r_id, :hour]
-#     )
-#     # leftjoin allows to add reserve to frame in the left
-#     return leftjoin(enriched_solution_value, reserve, on = [:r_id, :hour])
-# end
+function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
+    #TODO: deal with missing values
+    # Curtailment calculation
+    out = Dict(pairs(solution[[:cost, :termination_status]]))
+    # out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
+    out[:generation] = get_enriched_generation(solution, gen_df, gen_variable)
+    data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching
+    if haskey(kwargs, :storage)
+        append!(data, kwargs[:storage][!,FIELD_FOR_ENRICHING] )
+        out[:storage] = get_enriched_storage(solution, data)
+    end
+    if haskey(solution, :RESUP) & haskey(solution, :RESDN)
+        out[:reserve] =  get_enriched_reserve(solution, data)
+    end
+    if haskey(solution, :ERESUP) & haskey(solution, :ERESDN)
+        out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
+    end
+    out[:demand] = get_enriched_demand(loads)
+    return NamedTuple(out)
+end
 
-# function add_energy_reserve_to_solution(enriched_solution_value, solution)
-#     reserve = innerjoin(
-#         rename(solution.ERESUP, :value => :reserve_up_MW),
-#         rename(solution.ERESDN, :value => :reserve_down_MW),
-#         on = [:r_id, :hour, :hour_i]
-#     )
-#     return outerjoin(enriched_solution_value, reserve, on = [:r_id, :hour])
-# end
+
 function get_enriched_energy_reserve(solution, data)
     return leftjoin(
         innerjoin(
@@ -126,23 +137,37 @@ function get_enriched_demand(loads)
     demand.r_id .= missing
     demand.resource .= "total"
     return demand
-end
-
-function to_enriched_df(solution, gen_df, loads, gen_variable; kwargs...)
-    #TODO: deal with missing values
-    # Curtailment calculation
-    out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
-    data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching
-    if haskey(kwargs, :storage)
-        append!(data, kwargs[:storage][!,FIELD_FOR_ENRICHING] )
-        out[:storage] = get_enriched_storage(solution, data)
-    end
-    if haskey(solution, :RESUP) & haskey(solution, :RESDN)
-        out[:reserve] =  get_enriched_reserve(solution, data)
-    end
-    if haskey(solution, :ERESUP) & haskey(solution, :ERESDN)
-        out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
-    end
-    out[:demand] = get_enriched_demand(loads)
-    return NamedTuple(out)
 end 
+
+function calculate_supply_demand(solution)
+    #Supply-demand computation
+    supply = combine(groupby(solution.generation, [:hour, :resource]), :production_MW => sum, renamecols=false)
+    demand = combine(groupby(solution.demand, [:hour, :resource]), :demand_MW => sum, renamecols=false)
+  
+  
+    aux = combine(groupby(solution.generation, [:hour, :resource]), :curtailment_MW => sum, renamecols=false)
+    # replace!(aux.curtailment_MW, missing => 0)
+    aux = aux[aux.curtailment_MW.>0,:]
+    rename!(aux, :curtailment_MW => :production_MW)
+    transform!(aux, :resource .=> ByRow(x -> x*"_curtailment") => :resource)
+    append!(supply, aux, promote = true)
+  
+    if haskey(solution,:storage)
+        aux = combine(groupby(solution.storage, [:hour, :resource]), [:discharge_MW => sum, :charge_MW => sum], renamecols=false)
+        rename!(aux, [:discharge_MW => :production_MW, :charge_MW => :demand_MW])
+        append!(supply, aux[!,[:hour, :resource, :production_MW]])
+        append!(demand,  aux[!,[:hour, :resource, :demand_MW]], promote = true)
+    end 
+    return supply, demand
+  end
+  
+  function calculate_reserve(reserve, required_reserve, field_up_dn = [:reserve_up_MW,:reserve_down_MW])
+    aux = reserve[!,[:r_id, :hour,:resource,field_up_dn[1], field_up_dn[2]]]
+    replace!([aux.reserve_up_MW, missing => 0, aux.reserve_up_MW, missing => 0])
+    # replace!(aux.reserve_down_MW, missing => 0)
+    reserve = combine(groupby(aux, [:hour, :resource]), [field_up_dn[1] => sum, field_up_dn[2] => sum], renamecols=false)
+    aux = required_reserve
+    aux.resource.= "required"
+    append!(reserve, aux)
+    return reserve
+  end

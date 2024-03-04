@@ -43,7 +43,7 @@ end
 function get_solution(model)
     return merge(
         get_solution_variables(model),
-        (cost = objective_value(model), termination_status = termination_status(model))
+        (objective_value = objective_value(model), termination_status = termination_status(model))
     )
 end
 
@@ -55,7 +55,7 @@ end
 function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
     #TODO: deal with missing values
     # Curtailment calculation
-    out = Dict(pairs(solution[[:cost, :termination_status]]))
+    out = Dict(pairs(solution[[:objective_value, :termination_status]]))
     # out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
     out[:generation] = get_enriched_generation(solution, gen_df, gen_variable)
     data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching

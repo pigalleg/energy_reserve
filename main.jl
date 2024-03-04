@@ -18,8 +18,6 @@ T_period = (n*24+1):((n+1)*24)
 
 # High solar case: 3,500 MW
 gen_df_sens = copy(gen_df)
-gen_df_sens[gen_df_sens.resource .== "solar_photovoltaic",
-    :existing_cap_mw] .= 3500
 gen_variable = pre_process_gen_variable(gen_df_sens, gen_variable_info)
 
 # Filtering data with timeseries according to T_period

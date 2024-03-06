@@ -17,49 +17,59 @@ n=100
 T_period = (n*24+1):((n+1)*24)
 
 # High solar case: 3,500 MW
-gen_df_sens = copy(gen_df)
-gen_variable = pre_process_gen_variable(gen_df_sens, gen_variable_info)
+gen_variable = pre_process_gen_variable(gen_df, gen_variable_info)
+
+# No thermal generation
+# gen_df[gen_df.resource .== "natural_gas_fired_combustion_turbine",:existing_cap_mw] .= 0.1
+# gen_df[gen_df.resource .== "natural_gas_fired_combined_cycle",:existing_cap_mw] .= 0.1
 
 # Filtering data with timeseries according to T_period
 gen_variable_multi = gen_variable[in.(gen_variable.hour,Ref(T_period)),:];
 loads_multi = loads[in.(loads.hour,Ref(T_period)),:];
 
-requested_reserve = DataFrame(
+required_reserve = DataFrame(
     hour = loads[in.(loads.hour, Ref(T_period)), :hour],
     reserve_up_MW = 300 .+ loads[in.(loads.hour,Ref(T_period)), :demand].*0.05,
     reserve_down_MW = loads[in.(loads.hour, Ref(T_period)), :demand].*0.05)
 
-requested_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(requested_reserve), row_2 in eachrow(requested_reserve) if row_1.hour <= row_2.hour]
-requested_energy_reserve = DataFrame(requested_energy_reserve)
-requested_energy_reserve = rename(requested_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
+required_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
+required_energy_reserve = DataFrame(required_energy_reserve)
+required_energy_reserve = rename(required_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
 
-solution  = solve_unit_commitment(
-    gen_df_sens,
-    loads_multi,
-    gen_variable_multi,
-    0.001,
-    ramp_constraints = true,
-    storage = storage_df,
-    reserve = requested_reserve,
-    # energy_reserve = requested_energy_reserve,
-    enriched_solution = true,
-    storage_envelopes = false
-    )
-# @infiltrate
-# println(solution.generation)
-# println(solution.storage)
-# println(solution.demand)
-# println(solution.re)
-    # 
-supply, demand = calculate_supply_demand(solution)
-reserve = calculate_reserve(solution.reserve, requested_reserve)
-# plot_reserve(reserve)
-# plot_supply_demand(supply, demand)
-# p = [plot_supply_demand(supply, demand); plot_reserve(reserve)]
-# relayout!(p)
-# p
 
-[
-    plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
-    plot_reserve_by_fieldy(reserve, :reserve_up_MW, :resource) plot_reserve_by_fieldy(reserve, :reserve_down_MW, :resource)
-]
+required_energy_reserve_cumulated = [(row_1.hour, row_2.hour, sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_up_MW]), sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_down_MW])) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
+required_energy_reserve_cumulated = DataFrame(required_energy_reserve_cumulated)
+required_energy_reserve_cumulated = rename(required_energy_reserve_cumulated, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
+;
+
+function main()
+    solution  = solve_unit_commitment(
+        gen_df,
+        loads_multi,
+        gen_variable_multi,
+        0.01,
+        ramp_constraints = true,
+        storage = storage_df,
+        # reserve = required_reserve,
+        energy_reserve = required_energy_reserve_cumulated,
+        enriched_solution = true,
+        # storage_envelopes = true
+        )
+    supply, demand = calculate_supply_demand(solution)
+    if haskey(solution,:energy_reserve)
+        solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
+    else
+        solution_reserve = copy(solution.reserve)
+    end
+    reserve = calculate_reserve(solution_reserve, required_reserve)
+    # @infiltrate
+    battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
+    # @infiltrate
+    [
+        plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
+        plot_reserve_by_fieldy(reserve, :reserve_up_MW, :resource) plot_reserve_by_fieldy(reserve, :reserve_down_MW, :resource)
+        # plot_fieldx_by_fieldy(solution_reserve[solution_reserve.resource .== "battery",:], :reserve_up_MW, :r_id)
+        plot_fieldx_by_fieldy(battery_reserve, :envelope_up_MW_eff, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
+    ]
+end
+main()

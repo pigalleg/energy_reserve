@@ -19,7 +19,7 @@ TIMESTEP = :hour
 function plot_fieldx_by_fieldy(df, fieldx, fieldy, title = nothing)
   out = plot(
     [scatter(
-          x= df[df.resource .== r, TIMESTEP], y=df[df.resource .== r, fieldx],
+          x= df[df[!,fieldy] .== r, TIMESTEP], y=df[df[!,fieldy] .== r, fieldx],
           stackgroup="one", mode="lines", name = r,
           line=attr(width=1, color=color_discrete_map(r), shape = "line")
       ) for r in unique(df[!,fieldy])],
@@ -34,7 +34,7 @@ end
 function plot_reserve_by_fieldy(df, fieldx, fieldy, title = nothing)
   out = plot(
     [scatter(
-          x= df[df.resource .== r, TIMESTEP], y=df[df.resource .== r, fieldx],
+          x= df[df[!,fieldy] .== r, TIMESTEP], y=df[df[!,fieldy] .== r, fieldx],
           stackgroup=map_stack_group(r,"required"), mode="lines", name = r,
           line=attr(width=1, color=color_discrete_map(r), shape = "line")
       ) for r in unique(df[!,fieldy])],

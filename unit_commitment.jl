@@ -115,6 +115,8 @@ end
 function add_storage(model, storage, loads, gen_df)
     G, G_thermal, __, G_var, G_nonvar, ___ = create_generators_sets(gen_df)
     T, ____ =  create_time_sets(loads)
+    T_incr = copy(T)
+    pushfirst!(T_incr, T_incr[1]-1)
     S = create_storage_sets(storage)
     big_M = 1000
     GEN = model[:GEN]
@@ -122,7 +124,7 @@ function add_storage(model, storage, loads, gen_df)
     @variables(model, begin
         CH[S,T] >= 0
         DIS[S,T] >= 0
-        SOE[S,T] >= 0
+        SOE[S,T_incr] >= 0 # T_incr captures SOE at T = T[1]-1
         M[S,T], Bin
     end)
 
@@ -157,7 +159,7 @@ function add_storage(model, storage, loads, gen_df)
     
     #TODO: Include SOC[s,T[1]] in storage evolution with an aditional constraint
     # Storage constraints
-    @constraint(model, SOEEvol[s in S, t in T[2:end]], 
+    @constraint(model, SOEEvol[s in S, t in T], 
         SOE[s,t] - (SOE[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
 
@@ -179,11 +181,14 @@ function add_storage(model, storage, loads, gen_df)
     @constraint(model, DISMin[s in S, t in T],
         DIS[s,t] >= storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1] #TODO: calculation should be done at input file
     )
-    #TODO: once storage SOC[s,T[1]]is defined. T[1] can be removed
-    # SOE_T_initial = SOE_T_final
-    @constraint(model, SOEO_SOEFinal[s in S, t = [T[1],T[end]]], #TODO: replace by T
-        SOE[s,t] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
+    # SOE_T_initial = SOE_0
+    @constraint(model, SOEO[s in S], #TODO: replace by T
+        SOE[s,T_incr[1]] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
+    @constraint(model, SOEFinal[s in S],
+        SOE[s,T[end]] >= storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
+    )
+
 
 end
 
@@ -292,26 +297,28 @@ function add_envelope_constraints(model, loads, storage)
     CH = model[:CH]
     DIS = model[:DIS]
     T, _ =  create_time_sets(loads)
+    T_incr = copy(T)
+    pushfirst!(T_incr, T_incr[1]-1)
     @variables(model, begin
-        SOEUP[S, T] >= 0
-        SOEDN[S, T] >= 0
+        SOEUP[S, T_incr] >= 0
+        SOEDN[S, T_incr] >= 0
     end)
     #TODO: allow SOE to evolve at T[1]
-    @constraint(model, SOEUpEvol[s in S, t in T[2:end]], 
+    @constraint(model, SOEUpEvol[s in S, t in T], 
         SOEUP[s,t] - (SOEUP[s,t-1] + (CH[s,t] + RESDN[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
-    @constraint(model, SOEDnEvol[s in S, t in T[2:end]], 
+    @constraint(model, SOEDnEvol[s in S, t in T], 
         SOEDN[s,t] - (SOEDN[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + RESUP[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
     
     #TODO: once SOE evolves from T[1], this constraint will be no longer needed
     # SOEUP_T_initial = SOE_T_initial
     @constraint(model, SOEUP_0[s in S],
-        SOEUP[s,T[1]] == SOE[s,T[1]]
+        SOEUP[s,T_incr[1]] == SOE[s,T_incr[1]]
     )
     # SOEDN_T_initial = SOE_T_initial
     @constraint(model, SOEDN_0[s in S],
-        SOEDN[s,T[1]] == SOE[s,T[1]]
+        SOEDN[s,T_incr[1]] == SOE[s,T_incr[1]]
     )
     
     # SOEUP, SOEDN <=SOE_max

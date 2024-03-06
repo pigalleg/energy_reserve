@@ -171,3 +171,15 @@ function calculate_supply_demand(solution)
     append!(reserve, aux)
     return reserve
   end
+
+  function calculate_battery_reserve(solution_storage, solution_reserve, efficiency = 0.92)
+    variables_to_get = [:r_id, :hour, :SOE_MWh, :reserve_up_MW, :reserve_down_MW, :envelope_up_MWh, :envelope_down_MWh]
+    out = innerjoin(
+        solution_storage[!,intersect(propertynames(solution_storage), variables_to_get)], 
+        solution_reserve[solution_reserve.resource .=="battery", intersect(propertynames(solution_reserve), variables_to_get)], 
+        on = [:r_id, :hour])
+    out = combine(groupby(out, :hour), Not(:hour) .=> sum, renamecols=false)
+    out.reserve_down_MW_eff .= out.reserve_down_MW*efficiency
+    out.reserve_up_MW_eff .= -out.reserve_up_MW*1/efficiency
+    return out
+  end

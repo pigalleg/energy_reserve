@@ -1,4 +1,3 @@
-# TODO: once SOE and SOE envelopes are allowed to evolve from T[1], RES and ERES should capture that
 using JuMP
 using Gurobi
 using DataFrames
@@ -157,7 +156,6 @@ function add_storage(model, storage, loads, gen_df)
         DIS[s,t] <= big_M*(1-M[s,t])
     )
     
-    #TODO: Include SOC[s,T[1]] in storage evolution with an aditional constraint
     # Storage constraints
     @constraint(model, SOEEvol[s in S, t in T], 
         SOE[s,t] - (SOE[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
@@ -303,7 +301,6 @@ function add_envelope_constraints(model, loads, storage)
         SOEUP[S, T_incr] >= 0
         SOEDN[S, T_incr] >= 0
     end)
-    #TODO: allow SOE to evolve at T[1]
     @constraint(model, SOEUpEvol[s in S, t in T], 
         SOEUP[s,t] - (SOEUP[s,t-1] + (CH[s,t] + RESDN[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
@@ -311,7 +308,6 @@ function add_envelope_constraints(model, loads, storage)
         SOEDN[s,t] - (SOEDN[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + RESUP[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
     
-    #TODO: once SOE evolves from T[1], this constraint will be no longer needed
     # SOEUP_T_initial = SOE_T_initial
     @constraint(model, SOEUP_0[s in S],
         SOEUP[s,T_incr[1]] == SOE[s,T_incr[1]]

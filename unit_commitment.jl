@@ -57,18 +57,16 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods
       # TODO: add delta_T
-    @objective(model, Min, 
+    @objective(model, Min,
         sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1] * gen_df[gen_df.r_id .== i,:fuel_cost][1] +
-            gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] 
-                        for i in G_nonvar for t in T) + 
-        sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1] * GEN[i,t] 
-                        for i in G_var for t in T)  + 
+        gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] for i in G_nonvar for t in T) + 
+        
+        sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1] * GEN[i,t]  for i in G_var for t in T)  + 
+        
         sum(gen_df[gen_df.r_id .== i,:start_cost_per_mw][1] * 
-            gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
-            START[i,t] 
-                        for i in G_thermal for t in T)
+        gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
+        START[i,t] for i in G_thermal for t in T)
     )
-
     # Demand balance constraint (supply must = demand in all time periods)
     @constraint(model, SupplyDemandBalance[t in T], 
         sum(GEN[i,t] for i in G) == loads[loads.hour .== t,:demand][1])
@@ -119,7 +117,7 @@ function add_storage(model, storage, loads, gen_df)
     S = create_storage_sets(storage)
     big_M = 1000
     GEN = model[:GEN]
-    START = model[:START]
+    # START = model[:START]
     @variables(model, begin
         CH[S,T] >= 0
         DIS[S,T] >= 0
@@ -129,16 +127,7 @@ function add_storage(model, storage, loads, gen_df)
 
     # Redefinition of objecive function
     @objective(model, Min, 
-        sum((gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1] * gen_df[gen_df.r_id .== i,:fuel_cost][1] +
-            gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] 
-                        for i in G_nonvar for t in T) + 
-        sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1] * GEN[i,t] 
-                        for i in G_var for t in T)  + 
-        sum(gen_df[gen_df.r_id .== i,:start_cost_per_mw][1] * 
-            gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
-            START[i,t]
-                        for i in G_thermal for t in T) +
-        sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T) #TODO: add delta_T
+        objective_function(model) + sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T)
     )
     # Redefinition of supply-demand balance constraint
     SupplyDemandBalance = model[:SupplyDemandBalance]
@@ -186,8 +175,6 @@ function add_storage(model, storage, loads, gen_df)
     @constraint(model, SOEFinal[s in S],
         SOE[s,T[end]] >= storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
-
-
 end
 
 function add_ramp_constraints(model, loads, gen_df)
@@ -396,7 +383,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage =
 
 end
 
-function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...) 
+function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
     storage = nothing
     storage_envelopes = false
@@ -424,7 +411,12 @@ function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
         println("Adding energy reserve constraints...")
         add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df, storage)
     end
-    
+
+    return uc
+end
+
+function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...) 
+    uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     optimize!(uc)
     solution = get_solution(uc)
     if haskey(kwargs,:enriched_solution)

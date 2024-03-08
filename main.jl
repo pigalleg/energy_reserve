@@ -4,7 +4,8 @@
 # using Debugger
 # using Infiltrator
 include("./utils.jl")
-include("./unit_commitment.jl")
+# include("./unit_commitment.jl")
+include("./economic_dispatch.jl")
 include("./plotting.jl")
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 
@@ -42,18 +43,21 @@ required_energy_reserve_cumulated = DataFrame(required_energy_reserve_cumulated)
 required_energy_reserve_cumulated = rename(required_energy_reserve_cumulated, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
 ;
 
-function main()
+config = (
+    ramp_constraints = true,
+    storage = storage_df,
+    # reserve = required_reserve,
+    energy_reserve = required_energy_reserve,
+    enriched_solution = true,
+    # storage_envelopes = true
+)
+function main_uc()
     solution  = solve_unit_commitment(
         gen_df,
         loads_multi,
         gen_variable_multi,
-        0.0001,
-        ramp_constraints = true,
-        storage = storage_df,
-        # reserve = required_reserve,
-        energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = true
+        0.0001;
+        config...
         )
     supply, demand = calculate_supply_demand(solution)
     if haskey(solution,:energy_reserve)
@@ -73,4 +77,29 @@ function main()
     ]
     
 end
-main()
+
+function main_ec()
+    solution  = solve_economic_dispatch_single_demand(
+        gen_df,
+        loads_multi,
+        gen_variable_multi,
+        0.0001,
+        ramp_constraints = true,
+        storage = storage_df,
+        # reserve = required_reserve,
+        energy_reserve = required_energy_reserve,
+        enriched_solution = true,
+        # storage_envelopes = true
+        )
+    supply, demand = calculate_supply_demand(solution)
+    if haskey(solution,:energy_reserve)
+        solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
+    else
+        solution_reserve = copy(solution.reserve)
+    end
+    [
+        plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
+    ]
+end
+main_uc()
+# main_ec()

@@ -2,8 +2,10 @@
 
 include("../utils.jl")
 include("../unit_commitment.jl")
+include("../economic_dispatch.jl")
 # include("../plotting.jl")
 using CSV
+OBJECTIVE_VALUE = :objective_value
 
 reference =  CSV.read(joinpath("./test","reference.csv"), DataFrame)
 
@@ -110,13 +112,35 @@ configs = (
     ),
 )
 
-out = DataFrame(Dict(string(k) => solve_unit_commitment(
+function test1()
+    out = DataFrame(Dict(string(k) => solve_unit_commitment(
+            gen_df,
+            loads_multi,
+            gen_variable_multi,
+            0.001;
+            v...).objective_value for (k,v) in zip(keys(configs), configs)
+    ))
+    # @infiltrate
+    println(out == reference)
+end
+
+function test2()
+    uc_sol_value = solve_unit_commitment(
         gen_df,
         loads_multi,
         gen_variable_multi,
         0.001;
-        v...).objective_value for (k,v) in zip(keys(configs), configs)
-))
-# @infiltrate
-println(out == reference)
-
+        configs[:base]...)[OBJECTIVE_VALUE] 
+    
+    ed_sol_value = solve_economic_dispatch_single_demand(
+        gen_df,
+        loads_multi,
+        gen_variable_multi,
+        0.001;
+        configs[:base]...)[OBJECTIVE_VALUE]
+    println("Objective function")
+    println("UC = $uc_sol_value")
+    println("ED = $ed_sol_value")
+end
+test1()
+# test2()

@@ -61,3 +61,33 @@ function plot_reserve(reserve,  title  = nothing)
   end
   return out
 end
+
+function plot_battery_reserve(battery_reserve)
+  reserve_keys = Dict(:up => :reserve_up_MW_eff, :down => :reserve_down_MW_eff)
+  reserves_up = [scatter(
+      x= battery_reserve.hour, y=battery_reserve[!,key],
+      stackgroup=1, mode="lines", name = key,
+      line=attr(width=1, shape = "line"), line_shape="vh"
+  ) for key in [:SOE_MWh, reserve_keys[:up]]]
+
+  reserves_down = [scatter(
+      x= battery_reserve.hour, y=battery_reserve[!,key],
+      stackgroup=1, mode="lines", name = key,
+      line=attr(width=1, shape = "line"), line_shape="vh"
+  ) for key in [:SOE_MWh, reserve_keys[:down]]]
+
+  if :envelope_up_MWh in propertynames(battery_reserve)
+      envelope = [scatter(
+          x= battery_reserve.hour, y=battery_reserve[!,key],
+          mode="lines", name = key,
+          line=attr(width=1, shape = "line"), line_shape="vh"
+          ) for key in [:envelope_up_MWh, :envelope_down_MWh]]
+      union!(reserves_up, envelope)
+      union!(reserves_down, envelope)
+  end
+  
+  p1 = plot(reserves_up, Layout(yaxis_title="reserve MW", xaxis_title="hour", title = "All battery"))
+  p2 = plot(reserves_down, Layout(yaxis_title="reserve MW", xaxis_title="hour", title = "All battery"))
+
+  return [p1 p2]
+end

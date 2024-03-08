@@ -124,7 +124,7 @@ function add_storage(model, storage, loads, gen_df)
     @variables(model, begin
         CH[S,T] >= 0
         DIS[S,T] >= 0
-        SOE[S,T_incr] >= 0 # T_incr captures SOE at T = T[1]-1
+        SOE[S,T_incr] >= 0 # T_incr captures SOE at t = T[1]-1
         M[S,T], Bin
     end)
 

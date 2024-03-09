@@ -47,7 +47,7 @@ config = (
     ramp_constraints = true,
     storage = storage_df,
     # reserve = required_reserve,
-    energy_reserve = required_energy_reserve,
+    # energy_reserve = required_energy_reserve,
     enriched_solution = true,
     # storage_envelopes = true
 )
@@ -62,16 +62,16 @@ function main_uc()
     supply, demand = calculate_supply_demand(solution)
     if haskey(solution,:energy_reserve)
         solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
-    else
+    elseif haskey(solution,:reserve)
         solution_reserve = copy(solution.reserve)
+        reserve = calculate_reserve(solution_reserve, required_reserve)
+        battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
     end
-    reserve = calculate_reserve(solution_reserve, required_reserve)
-    battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
-    # @infiltrate
+  
     [
         plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
-        plot_reserve_by_fieldy(reserve, :reserve_up_MW, :resource) plot_reserve_by_fieldy(reserve, :reserve_down_MW, :resource)
-        plot_fieldx_by_fieldy(solution_reserve[solution_reserve.resource .== "battery",:], :reserve_up_MW, :r_id)
+        # plot_reserve_by_fieldy(reserve, :reserve_up_MW, :resource) plot_reserve_by_fieldy(reserve, :reserve_down_MW, :resource)
+        # plot_fieldx_by_fieldy(solution_reserve[solution_reserve.resource .== "battery",:], :reserve_up_MW, :r_id)
         # plot_battery_reserve(battery_reserve)
         # plot_fieldx_by_fieldy(battery_reserve, :envelope_up_MW_eff, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
     ]
@@ -83,23 +83,20 @@ function main_ec()
         gen_df,
         loads_multi,
         gen_variable_multi,
-        0.0001,
-        ramp_constraints = true,
-        storage = storage_df,
-        # reserve = required_reserve,
-        energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = true
+        0.0001;
+        config...
         )
     supply, demand = calculate_supply_demand(solution)
     if haskey(solution,:energy_reserve)
         solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
-    else
+    elseif haskey(solution,:reserve)
         solution_reserve = copy(solution.reserve)
+        reserve = calculate_reserve(solution_reserve, required_reserve)
+        battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
     end
     [
         plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
     ]
 end
-main_uc()
-# main_ec()
+# main_uc()
+main_ec()

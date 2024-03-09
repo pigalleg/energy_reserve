@@ -13,6 +13,12 @@ function construct_economic_dispatch(uc, loads)
     # TODO: update objective function here!
     ed = uc
     fix_decision_variables(ed)
+
+    # update objective function with LOL
+    
+    # remove reserve constraints
+
+    # remove energy constraints
     return ed
 end
 

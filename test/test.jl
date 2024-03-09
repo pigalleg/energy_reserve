@@ -125,22 +125,25 @@ function test1()
 end
 
 function test2()
-    uc_sol_value = solve_unit_commitment(
-        gen_df,
-        loads_multi,
-        gen_variable_multi,
-        0.001;
-        configs[:base]...)[OBJECTIVE_VALUE] 
-    
-    ed_sol_value = solve_economic_dispatch_single_demand(
-        gen_df,
-        loads_multi,
-        gen_variable_multi,
-        0.001;
-        configs[:base]...)[OBJECTIVE_VALUE]
-    println("Objective function")
-    println("UC = $uc_sol_value")
-    println("ED = $ed_sol_value")
+    mip_gap = 0.0001
+    # configs_ = (base = configs[:base],)
+    out = [(solve_unit_commitment(
+            gen_df,
+            loads_multi,
+            gen_variable_multi,
+            mip_gap;
+            v...)[OBJECTIVE_VALUE],
+        solve_economic_dispatch_single_demand(
+            gen_df,
+            loads_multi,
+            gen_variable_multi,
+            mip_gap;
+            v...)[OBJECTIVE_VALUE]) for (k,v) in zip(keys(configs), configs)
+    ]
+    out = DataFrame(Config = collect(keys(configs)), UC= getindex.(out,1), EC = getindex.(out,2))
+    out[!,:delta_percentage] .= (out.UC .- out.EC)./out.UC*100
+    out[!,:delta_percentage_loq_mip_gap] .= out.delta_percentage .<=mip_gap
+    println(out)
 end
-test1()
-# test2()
+# test1()
+test2()

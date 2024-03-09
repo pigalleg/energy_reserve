@@ -4,38 +4,52 @@ using DataFrames
 include("./unit_commitment.jl")
 include("./post_processing.jl")
 
-COMMIT, START, SHUT = :COMMIT, :START, :SHUT
+COMMIT, START, SHUT, LOL_ = :COMMIT, :START, :SHUT, :LOL
 VLOL = 10^6
 
-function construct_economic_dispatch(uc, loads)
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints = true)
     # Outputs EC by fixing variables of UC
-    # ec = copy_model(uc)
-    # TODO: update objective function here!
+    T, __ = create_time_sets(loads)
+    # ec = copy_model(uc) # TODO: how to copy model?
     ed = uc
     fix_decision_variables(ed)
 
-    # update objective function with LOL
-    
-    # remove reserve constraints
+    # update objective function with LOL term
+    @variables(ed, begin LOL[T] >= 0 end)
+    @objective(ed, Min, 
+        objective_function(ed) + VLOL*sum(LOL[t] for t in T)
+    )
 
-    # remove energy constraints
+    # Update demand
+    update_demand(ed, loads)    
+
+    # By default, (energy) reserve constraints are removed 
+    if remove_reserve_constraints
+        nothing
+    end
     return ed
 end
 
 function update_demand(model, loads)
-    # Update demand and introduces LOL
-    # TODO: rewrite balance equation every time demand is updated. Is this really needed?
-    # @variables(model, begin 
-    #     LOL[T] >=0 
-    # end)
-    # GEN = model[:GEN]
-    # u = model[:u]
-    # balance = model[:balance]
-    # delete.(model, balance)
-    # unregister(model, :balance)
-    # @constraint(model, balance[t in T], sum(u[s,t]*GEN[s,t] for s in S) - CUR[t]- (D[t]-LOL[t])== 0)
-    # @objective(model, Min, sum(sum(u[s,t]*GEN[s,t]*C[s] for s in S) + LOL[t]*VLOLL + CUR[t]*VCUR  for t in T))
-    nothing
+    # Update demand values and introduces LOL on balance
+    T, __ = create_time_sets(loads)
+    LOL = model[LOL_]
+    @constraint(model, LOLMax[t in T],
+        LOL[t]<= loads[loads.hour .== t,:demand][1]    
+    )
+
+    SupplyDemand = model[:SupplyDemand]
+    unregister(model, :SupplyDemand)
+    @expression(model, SupplyDemand[t in T],
+        SupplyDemand[t] + LOL[t]
+    )
+
+    SupplyDemandBalance = model[:SupplyDemandBalance]
+    delete.(model, SupplyDemandBalance) # Constraints must be deleted also
+    unregister(model, :SupplyDemandBalance)
+    @constraint(model, SupplyDemandBalance[t in T], 
+        SupplyDemand[t] == 0
+    )
 end
 
 function fix_decision_variables(model, decision_variables::Array = [COMMIT, START, SHUT])

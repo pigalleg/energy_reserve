@@ -68,8 +68,12 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
         START[i,t] for i in G_thermal for t in T)
     )
     # Demand balance constraint (supply must = demand in all time periods)
+    @expression(model, SupplyDemand[t in T],
+        sum(GEN[i,t] for i in G) - loads[loads.hour .== t,:demand][1]
+    )
     @constraint(model, SupplyDemandBalance[t in T], 
-        sum(GEN[i,t] for i in G) == loads[loads.hour .== t,:demand][1])
+        SupplyDemand[t] == 0
+    )
 
     # Capacity constraints 
     # 1. thermal generators requiring commitment
@@ -129,12 +133,17 @@ function add_storage(model, storage, loads, gen_df)
     @objective(model, Min, 
         objective_function(model) + sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T)
     )
-    # Redefinition of supply-demand balance constraint
+    # Redefinition of supply-demand balance expression and constraint
+    SupplyDemand = model[:SupplyDemand]
+    unregister(model, :SupplyDemand)
+    @expression(model, SupplyDemand[t in T],
+        SupplyDemand[t] - sum(CH[s,t] - DIS[s,t] for s in S)
+    )
     SupplyDemandBalance = model[:SupplyDemandBalance]
-    delete.(model, SupplyDemandBalance)
+    delete.(model, SupplyDemandBalance) # Constraints must be deleted also
     unregister(model, :SupplyDemandBalance)
     @constraint(model, SupplyDemandBalance[t in T], 
-        sum(GEN[i,t] for i in G) - sum(CH[s,t] - DIS[s,t] for s in S) == loads[loads.hour .== t,:demand][1]
+        SupplyDemand[t] == 0
     )
 
     # Charging-discharging logic

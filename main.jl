@@ -78,7 +78,7 @@ function main_uc()
     
 end
 
-function main_ec()
+function main_ed()
     solution  = solve_economic_dispatch_single_demand(
         gen_df,
         loads_multi,
@@ -99,4 +99,4 @@ function main_ec()
     ]
 end
 # main_uc()
-main_ec()
+main_ed()

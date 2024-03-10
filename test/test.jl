@@ -112,6 +112,10 @@ configs = (
     ),
 )
 
+ed_config = (
+    remove_reserve_constraints = false,
+)
+
 function test1()
     out = DataFrame(Dict(string(k) => solve_unit_commitment(
             gen_df,
@@ -138,7 +142,7 @@ function test2()
             loads_multi,
             gen_variable_multi,
             mip_gap;
-            v...)[OBJECTIVE_VALUE]) for (k,v) in zip(keys(configs), configs)
+            merge(v, ed_config)...)[OBJECTIVE_VALUE]) for (k,v) in zip(keys(configs), configs)
     ]
     out = DataFrame(Config = collect(keys(configs)), UC= getindex.(out,1), EC = getindex.(out,2))
     out[!,:delta_percentage] .= (out.UC .- out.EC)./out.UC*100

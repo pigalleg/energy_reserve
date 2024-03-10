@@ -9,6 +9,40 @@ include("./economic_dispatch.jl")
 include("./plotting.jl")
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 
+function plot_results(solution)
+    supply, demand = calculate_supply_demand(solution)
+    p1 = plot_fieldx_by_fieldy(supply, :production_MW, :resource)
+    p2 = plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
+    p3 =plot()
+    p4 =plot()
+    p5 =plot()
+    p6 =plot()
+    has_reserve = false
+    if haskey(solution,:energy_reserve)
+        solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
+        has_reserve = true
+    elseif haskey(solution,:reserve)
+        solution_reserve = copy(solution.reserve)
+        has_reserve = true
+    end
+    if has_reserve
+        reserve = calculate_reserve(solution_reserve, required_reserve)
+        p3 = plot_reserve_by_fieldy(reserve, :reserve_up_MW, :resource)
+        p4 = plot_reserve_by_fieldy(reserve, :reserve_down_MW, :resource)
+    end
+
+    if haskey(solution,:storage) & has_reserve
+        battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
+        p5 = plot_battery_reserve_(battery_reserve, :reserve_up_MW_eff)
+        p6 = plot_battery_reserve_(battery_reserve, :reserve_down_MW_eff)
+    end
+    [
+        p1 p2
+        p3 p4
+        p5 p6
+    ]
+end
+
 gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
 gen_df = pre_process_generators_data(gen_info, fuels)
 storage_df = pre_process_storage_data(storage_info)
@@ -47,10 +81,16 @@ config = (
     ramp_constraints = true,
     storage = storage_df,
     # reserve = required_reserve,
-    # energy_reserve = required_energy_reserve,
+    energy_reserve = required_energy_reserve,
     enriched_solution = true,
-    # storage_envelopes = true
+    storage_envelopes = true
 )
+ed_config = (
+    remove_reserve_constraints = true,
+)
+config = merge(config, ed_config)
+
+
 function main_uc()
     solution  = solve_unit_commitment(
         gen_df,
@@ -59,23 +99,7 @@ function main_uc()
         0.0001;
         config...
         )
-    supply, demand = calculate_supply_demand(solution)
-    if haskey(solution,:energy_reserve)
-        solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
-    elseif haskey(solution,:reserve)
-        solution_reserve = copy(solution.reserve)
-        reserve = calculate_reserve(solution_reserve, required_reserve)
-        battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
-    end
-  
-    [
-        plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
-        # plot_reserve_by_fieldy(reserve, :reserve_up_MW, :resource) plot_reserve_by_fieldy(reserve, :reserve_down_MW, :resource)
-        # plot_fieldx_by_fieldy(solution_reserve[solution_reserve.resource .== "battery",:], :reserve_up_MW, :r_id)
-        # plot_battery_reserve(battery_reserve)
-        # plot_fieldx_by_fieldy(battery_reserve, :envelope_up_MW_eff, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
-    ]
-    
+    plot_results(solution)
 end
 
 function main_ed()
@@ -86,17 +110,7 @@ function main_ed()
         0.0001;
         config...
         )
-    supply, demand = calculate_supply_demand(solution)
-    if haskey(solution,:energy_reserve)
-        solution_reserve = solution.energy_reserve[solution.energy_reserve.hour.==solution.energy_reserve.hour_i,:]
-    elseif haskey(solution,:reserve)
-        solution_reserve = copy(solution.reserve)
-        reserve = calculate_reserve(solution_reserve, required_reserve)
-        battery_reserve = calculate_battery_reserve(solution.storage, solution_reserve)
-    end
-    [
-        plot_fieldx_by_fieldy(supply, :production_MW, :resource) plot_fieldx_by_fieldy(demand, :demand_MW, :resource)
-    ]
+        plot_results(solution)
 end
 # main_uc()
 main_ed()

@@ -4,11 +4,15 @@ FIELD_FOR_ENRICHING = [:r_id, :resource, :full_id]
 
 function value_to_df(var)
     if var isa JuMP.Containers.DenseAxisArray
-        return value_to_df_2dim(var)
+        if length(value.(var).axes) == 2
+            return value_to_df_2dim(var)
+        else
+            return value_to_df_1dim(var)
+        end
     elseif var isa JuMP.Containers.SparseAxisArray
         return value_to_df_multidim(var, [:r_id, :hour_i, :hour])
     else
-        print("Could not identify type of output. Returnin initial variable...")
+        println("Could not identify type of output. Returning initial variable...")
         return var
     end
 end
@@ -27,6 +31,10 @@ function value_to_df_multidim(var, new_index_list = nothing)
     return out
 end
 
+function value_to_df_1dim(var)
+    return DataFrame(hour = value.(var).axes[1], value = value.(var).data)
+end
+
 function value_to_df_2dim(var)
     solution = DataFrame(value.(var).data, :auto)
     ax1 = value.(var).axes[1]
@@ -43,19 +51,21 @@ end
 function get_solution(model)
     return merge(
         get_solution_variables(model),
-        (objective_value = objective_value(model), termination_status = termination_status(model))
+        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model)),)
+        # (objective_value = objective_value(model), termination_status = termination_status(model))
     )
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN, :LOL]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
 function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
     #TODO: deal with missing values
     # Curtailment calculation
-    out = Dict(pairs(solution[[:objective_value, :termination_status]]))
+    # out = Dict(pairs(solution[[:objective_value, :termination_status]]))
+    out = Dict(pairs(solution[[:scalar]]))
     # out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
     out[:generation] = get_enriched_generation(solution, gen_df, gen_variable)
     data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching
@@ -69,7 +79,7 @@ function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
     if haskey(solution, :ERESUP) & haskey(solution, :ERESDN)
         out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
     end
-    out[:demand] = get_enriched_demand(loads)
+    out[:demand] = get_enriched_demand(solution, loads)
     return NamedTuple(out)
 end
 
@@ -132,10 +142,17 @@ function get_enriched_generation(solution, gen_df, gen_variable)
     return aux
 end
 
-function get_enriched_demand(loads)
-    demand =  rename(loads, :demand => :demand_MW)
+function get_enriched_demand(solution, loads)
+    demand = rename(loads, [ x => "demand_MW" for x in names(loads[!,Not(:hour)])])
+    # demand =  rename(loads, :demand => :demand_MW)
     demand.r_id .= missing
     demand.resource .= "total"
+    if haskey(solution, :LOL)
+        demand = leftjoin(
+            demand, 
+            rename(solution[:LOL], :value => :LOL_MW),
+            on = [:hour])
+    end
     return demand
 end 
 

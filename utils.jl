@@ -1,5 +1,7 @@
 using DataFrames
 using CSV
+using Random
+using Distributions
 
 function to_GMT(df)
   # Convert from GMT to GMT-8
@@ -23,7 +25,6 @@ function read_data()
   to_GMT(loads)
   return gen_info, fuels, loads, identity.(gen_variable), storage_info
 end
-
 
 function pre_process_gen_variable(gen_df, gen_variable_info)
   aux = stack(gen_variable_info, Not(:hour), variable_name=:full_id, value_name=:cf)
@@ -58,6 +59,21 @@ function pre_process_storage_data(storage_info)
   df.full_id = lowercase.(storage_info.region .* "_" .* storage_info.resource .* "_" .* string.(storage_info.cluster) .* ".0");
   return df
 end
+
+function create_random_demand(loads, nb_samples)
+  out = transform(loads, :demand => ByRow(x ->  [x+rand(Normal(0, 5)) for i in 1:nb_samples]) => ["demand_$i" for i in 1:nb_samples])
+  CSV.write(joinpath("input", "demand", "random_demand.csv"), out)
+end
+
+function read_random_demand()
+  return CSV.read(joinpath("input", "demand", "random_demand.csv"), DataFrame)
+end
+
+function main()
+  gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
+  create_random_demand(loads, 1000)
+end
+  
 
 
 

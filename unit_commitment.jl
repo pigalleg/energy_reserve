@@ -69,10 +69,10 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
     )
     # Demand balance constraint (supply must = demand in all time periods)
     @expression(model, SupplyDemand[t in T],
-        sum(GEN[i,t] for i in G) - loads[loads.hour .== t,:demand][1]
+        sum(GEN[i,t] for i in G)
     )
     @constraint(model, SupplyDemandBalance[t in T], 
-        SupplyDemand[t] == 0
+        SupplyDemand[t] == loads[loads.hour .== t,:demand][1]
     )
 
     # Capacity constraints 
@@ -143,7 +143,7 @@ function add_storage(model, storage, loads, gen_df)
     delete.(model, SupplyDemandBalance) # Constraints must be deleted also
     unregister(model, :SupplyDemandBalance)
     @constraint(model, SupplyDemandBalance[t in T], 
-        SupplyDemand[t] == 0
+        SupplyDemand[t] == loads[loads.hour .== t,:demand][1]
     )
 
     # Charging-discharging logic
@@ -393,6 +393,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage =
 end
 
 function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
+    println("Constructing UC...")
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
     storage = nothing
     storage_envelopes = false

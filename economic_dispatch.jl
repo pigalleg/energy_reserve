@@ -4,9 +4,12 @@ using DataFrames
 include("./unit_commitment.jl")
 include("./post_processing.jl")
 
-COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN
+COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, DEMAND = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :demand
+DEMAND = :demand
 
 function construct_economic_dispatch(uc, loads, remove_reserve_constraints = true, VLOL = 10^6)
+    #TODO: remove loads from arguments
+    println("Constructing EC...")
     # Outputs EC by fixing variables of UC
     T, __ = create_time_sets(loads)
     # ec = copy_model(uc) # TODO: how to copy model?
@@ -29,48 +32,41 @@ function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
     # keys = [RESUP, RESDN, :ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpStorage, :ResDownStorage, :ResUpRequirement, :ResDnRequirement, :SOEUP, :SOEDN, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, ERESUP, ERESDN, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
-
     keys = [:ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpStorage, :ResDownStorage, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
 
-    # removed = []
     for k in keys
         if haskey(model, k)
-            # push!(removed, k)
             remove_variable_constraint(model, k)
         end
     end
-    # @infiltrate
-    # display(removed)
-    # exit()
 end
 
-function remove_variable_constraint(model, key)
+function remove_variable_constraint(model, key, delete_ = true)
     # Applies for constraints and variables
     println(key)
-    delete.(model, model[key]) # Constraints must be deleted also
+    if delete_ delete.(model, model[key]) end # Constraints must be deleted also
     unregister(model, key)
-
 end
 
-function update_demand(model, loads)
-    # Update demand values and introduces LOL on balance
+function update_demand(model, loads, key)
+    # Update demand values and introduces LOL at supply-demand balance
     T, __ = create_time_sets(loads)
     LOL = model[LOL_]
+
+    if haskey(model, :LOLMax) remove_variable_constraint(model, :LOLMax) end
     @constraint(model, LOLMax[t in T],
-        LOL[t]<= loads[loads.hour .== t,:demand][1]    
+        LOL[t]<= loads[loads.hour .== t, key][1]    
     )
 
     SupplyDemand = model[:SupplyDemand]
-    unregister(model, :SupplyDemand)
+    remove_variable_constraint(model, :SupplyDemand, false)
     @expression(model, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t]
     )
 
-    SupplyDemandBalance = model[:SupplyDemandBalance]
-    delete.(model, SupplyDemandBalance) # Constraints must be deleted also
-    unregister(model, :SupplyDemandBalance)
+    remove_variable_constraint(model, :SupplyDemandBalance)
     @constraint(model, SupplyDemandBalance[t in T], 
-        SupplyDemand[t] == 0
+        SupplyDemand[t] == loads[loads.hour .== t, key][1]
     )
 end
 
@@ -83,8 +79,19 @@ function fix_decision_variables(model, decision_variables::Array = [COMMIT, STAR
     end
 end
 
+function merge_solutions(solutions::Dict)
+    #TODO can be done more elegantly
+    solution_keys = keys(solutions[collect(keys(solutions))[1]]) # assumes all solutions have the same set of keys
+    out = Dict(k => [] for k in solution_keys)
+    for d in keys(solutions), k in solution_keys
+        solutions[d][k][!,DEMAND] .= d
+        push!(out[k], solutions[d][k])
+    end
+    return NamedTuple(k => vcat(out[k]...) for k in keys(out))
+end
 
-function solve_economic_dispatch(ed, gen_df, loads, gen_variable; kwargs...)
+
+function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
     println("Solving EC...")
     optimize!(ed)
     solution = get_solution(ed)
@@ -96,16 +103,33 @@ function solve_economic_dispatch(ed, gen_df, loads, gen_variable; kwargs...)
     return solution
 end
 
-function solve_economic_dispatch_single_demand(gen_df, loads, gen_variable, mip_gap; kwargs...)
-    println("Constructing UC...")
-    uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
+function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...)
+    solutions = Dict()
+    uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable, mip_gap; kwargs...)
     optimize!(uc)
-    println("Constructing EC...")
     remove_reserve_constraints = false
     if haskey(kwargs, :remove_reserve_constraints)
         remove_reserve_constraints = kwargs[:remove_reserve_constraints] == true
     end
-    ed  = construct_economic_dispatch(uc, loads, remove_reserve_constraints)
-    update_demand(ed, loads)
-    return solve_economic_dispatch(ed, gen_df, loads, gen_variable; kwargs...)
+    ed  = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints)
+    
+    # for k in collect(propertynames(loads[!, Not(HOUR)]))
+    for k in first(collect(propertynames(loads[!, Not(HOUR)])),1000)
+        update_demand(ed, loads[!,[HOUR,k]], k)
+        solutions[k] = solve_economic_dispatch_(ed, gen_df, loads[!,[HOUR,k]], gen_variable; kwargs...)
+    end
+    return merge_solutions(solutions)
 end
+
+# function solve_economic_dispatch_multiple_demand(multiple_loads, gen_df, loads, gen_variable, mip_gap; kwargs...)
+#     uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
+#     optimize!(uc)
+#     remove_reserve_constraints = false
+#     if haskey(kwargs, :remove_reserve_constraints)
+#         remove_reserve_constraints = kwargs[:remove_reserve_constraints] == true
+#     end
+#     ed  = construct_economic_dispatch(uc, loads, remove_reserve_constraints)
+#     @infiltrate
+#     update_demand(ed, loads)
+#     return solve_economic_dispatch(ed, gen_df, loads, gen_variable; kwargs...)
+# end

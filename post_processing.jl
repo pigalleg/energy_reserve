@@ -156,47 +156,4 @@ function get_enriched_demand(solution, loads)
     return demand
 end 
 
-function calculate_supply_demand(solution)
-    #Supply-demand computation
-    supply = combine(groupby(solution.generation, [:hour, :resource]), :production_MW => sum, renamecols=false)
-    demand = combine(groupby(solution.demand, [:hour, :resource]), :demand_MW => sum, renamecols=false)
-  
-  
-    aux = combine(groupby(solution.generation, [:hour, :resource]), :curtailment_MW => sum, renamecols=false)
-    # replace!(aux.curtailment_MW, missing => 0)
-    aux = aux[aux.curtailment_MW.>0,:]
-    rename!(aux, :curtailment_MW => :production_MW)
-    transform!(aux, :resource .=> ByRow(x -> x*"_curtailment") => :resource)
-    append!(supply, aux, promote = true)
-  
-    if haskey(solution,:storage)
-        aux = combine(groupby(solution.storage, [:hour, :resource]), [:discharge_MW => sum, :charge_MW => sum], renamecols=false)
-        rename!(aux, [:discharge_MW => :production_MW, :charge_MW => :demand_MW])
-        append!(supply, aux[!,[:hour, :resource, :production_MW]])
-        append!(demand,  aux[!,[:hour, :resource, :demand_MW]], promote = true)
-    end 
-    return supply, demand
-  end
-  
-  function calculate_reserve(reserve, required_reserve, field_up_dn = [:reserve_up_MW,:reserve_down_MW])
-    aux = reserve[!,[:r_id, :hour,:resource,field_up_dn[1], field_up_dn[2]]]
-    replace!([aux.reserve_up_MW, missing => 0, aux.reserve_up_MW, missing => 0])
-    # replace!(aux.reserve_down_MW, missing => 0)
-    reserve = combine(groupby(aux, [:hour, :resource]), [field_up_dn[1] => sum, field_up_dn[2] => sum], renamecols=false)
-    aux = required_reserve
-    aux.resource.= "required"
-    append!(reserve, aux)
-    return reserve
-  end
 
-  function calculate_battery_reserve(solution_storage, solution_reserve, efficiency = 0.92)
-    variables_to_get = [:r_id, :hour, :SOE_MWh, :reserve_up_MW, :reserve_down_MW, :envelope_up_MWh, :envelope_down_MWh]
-    out = innerjoin(
-        solution_storage[!,intersect(propertynames(solution_storage), variables_to_get)], 
-        solution_reserve[solution_reserve.resource .=="battery", intersect(propertynames(solution_reserve), variables_to_get)], 
-        on = [:r_id, :hour])
-    out = combine(groupby(out, :hour), Not(:hour) .=> sum, renamecols=false)
-    out.reserve_down_MW_eff .= out.reserve_down_MW*efficiency
-    out.reserve_up_MW_eff .= -out.reserve_up_MW*1/efficiency
-    return out
-  end

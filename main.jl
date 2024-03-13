@@ -7,6 +7,7 @@ include("./utils.jl")
 # include("./unit_commitment.jl")
 include("./economic_dispatch.jl")
 include("./plotting.jl")
+include("./processing.jl")
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 
 function plot_results(solution)
@@ -50,7 +51,8 @@ storage_df = pre_process_storage_data(storage_info)
 random_loads_df = read_random_demand()
 
 # A spring day
-n=100
+# n=100
+n = div(5363, 24)
 T_period = (n*24+1):((n+1)*24)
 
 # Filtering data with timeseries according to T_period
@@ -58,18 +60,7 @@ gen_variable_multi = gen_variable[in.(gen_variable.hour,Ref(T_period)),:];
 loads_multi = loads[in.(loads.hour,Ref(T_period)),:]
 random_loads_multi =  random_loads_df[in.(random_loads_df.hour,Ref(T_period)),:];
 
-required_reserve = DataFrame(
-    hour = loads_multi[!,:hour],
-    reserve_up_MW = 300 .+ loads_multi[!,:demand].*0.05,
-    reserve_down_MW = loads_multi[!,:demand].*0.05)
-
-required_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
-required_energy_reserve = DataFrame(required_energy_reserve)
-required_energy_reserve = rename(required_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
-
-required_energy_reserve_cumulated = [(row_1.hour, row_2.hour, sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_up_MW]), sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_down_MW])) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
-required_energy_reserve_cumulated = DataFrame(required_energy_reserve_cumulated)
-required_energy_reserve_cumulated = rename(required_energy_reserve_cumulated, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
+required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi, 0.1, 0)
 
 config = (
     ramp_constraints = true,
@@ -81,6 +72,7 @@ config = (
 )
 ed_config = (
     remove_reserve_constraints = true,
+    max_iterations = 10,
 )
 config = merge(config, ed_config)
 
@@ -115,9 +107,8 @@ function main_ed_multi_demand()
         0.0001;
         config...
         )
-        # plot_results(solution)
-        # @infiltrate
+        plot_results(solution)
 end
 # main_uc()
 # main_ed()
-main_ed_multi_demand()
+# main_ed_multi_demand()

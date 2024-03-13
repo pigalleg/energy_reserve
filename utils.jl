@@ -60,8 +60,9 @@ function pre_process_storage_data(storage_info)
   return df
 end
 
+# Functions to randomize demand. Not used by the rest of the code
 function create_random_demand(loads, nb_samples)
-  out = transform(loads, :demand => ByRow(x ->  [x+rand(Normal(0, 5)) for i in 1:nb_samples]) => ["demand_$i" for i in 1:nb_samples])
+  out = transform(loads, :demand => ByRow(x ->  [rand(Normal(x, x*0.1/2)) for i in 1:nb_samples]) => ["demand_$i" for i in 1:nb_samples])
   CSV.write(joinpath("input", "demand", "random_demand.csv"), out)
 end
 
@@ -73,6 +74,7 @@ function main()
   gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
   create_random_demand(loads, 1000)
 end
+
   
 
 

@@ -3,6 +3,7 @@
 include("../utils.jl")
 include("../unit_commitment.jl")
 include("../economic_dispatch.jl")
+include("../processing.jl")
 # include("../plotting.jl")
 using CSV
 OBJECTIVE_VALUE = :objective_value
@@ -25,93 +26,8 @@ gen_variable_multi = gen_variable[in.(gen_variable.hour,Ref(T_period)),:];
 loads_multi = loads[in.(loads.hour,Ref(T_period)),:]
 random_loads_multi =  random_loads_df[in.(random_loads_df.hour,Ref(T_period)),:];
 
-required_reserve = DataFrame(
-    hour = loads_multi[!,:hour],
-    reserve_up_MW = 300 .+ loads_multi[!,:demand].*0.05,
-    reserve_down_MW = loads_multi[!,:demand].*0.05)
-
-required_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
-required_energy_reserve = DataFrame(required_energy_reserve)
-required_energy_reserve = rename(required_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
-
-required_energy_reserve_cumulated = [(row_1.hour, row_2.hour, sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_up_MW]), sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_down_MW])) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
-required_energy_reserve_cumulated = DataFrame(required_energy_reserve_cumulated)
-required_energy_reserve_cumulated = rename(required_energy_reserve_cumulated, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
-
-configs = (
-    base = (
-        ramp_constraints = false,
-        # storage = storage_df,
-        # reserve = required_reserve,
-        # energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = false
-    ),
-    base_ramp = (
-        ramp_constraints = true,
-        # storage = storage_df,
-        # reserve = required_reserve,
-        # energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = false
-    ),
-    base_ramp_reserve = (
-        ramp_constraints = true,
-        # storage = storage_df,
-        reserve = required_reserve,
-        # energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = false
-    ),
-    base_ramp_energy_reserve = (
-        ramp_constraints = true,
-        # storage = storage_df,
-        # reserve = required_reserve,
-        energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = false
-    ),
-    base_ramp_storage = (
-        ramp_constraints = true,
-        storage = storage_df,
-        # reserve = required_reserve,
-        # energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = false
-    ),
-    base_ramp_storage_reserve = (
-        ramp_constraints = true,
-        storage = storage_df,
-        reserve = required_reserve,
-        # energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        # storage_envelopes = false
-    ),
-    base_ramp_storage_envelopes = (
-        ramp_constraints = true,
-        storage = storage_df,
-        reserve = required_reserve,
-        # energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        storage_envelopes = true
-    ),
-    base_ramp_storage_energy_reserve = (
-        ramp_constraints = true,
-        storage = storage_df,
-        # reserve = required_reserve,
-        energy_reserve = required_energy_reserve,
-        enriched_solution = true,
-        storage_envelopes = false,
-    ),
-    base_ramp_storage_energy_reserve_cumulated = (
-        ramp_constraints = true,
-        storage = storage_df,
-        # reserve = required_reserve,
-        energy_reserve = required_energy_reserve_cumulated,
-        enriched_solution = true,
-        storage_envelopes = false,
-    ),
-)
+required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi, 0.05, 300)
+configs = generate_configurations(required_energy_reserve, required_energy_reserve_cumulated)
 
 ed_config = (
     remove_reserve_constraints = false,
@@ -123,7 +39,7 @@ function test1()
             loads_multi,
             gen_variable_multi,
             0.001;
-            v...).scalar[1, OBJECTIVE_VALUE] for (k,v) in zip(keys(configs), configs)
+            v...).scalar[1, OBJECTIVE_VALUE] for (k,v) in configs
     ))
     # @infiltrate
     println(out == reference)
@@ -143,7 +59,7 @@ function test2()
             loads_multi,
             gen_variable_multi,
             mip_gap;
-            merge(v, ed_config)...).scalar[1, OBJECTIVE_VALUE] ) for (k,v) in zip(keys(configs), configs)
+            merge(v, ed_config)...).scalar[1, OBJECTIVE_VALUE] ) for (k,v) in configs
     ]
     out = DataFrame(Config = collect(keys(configs)), UC= getindex.(out,1), EC = getindex.(out,2))
     out[!,:delta_percentage] .= (out.UC .- out.EC)./out.UC*100

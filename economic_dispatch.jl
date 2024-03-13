@@ -4,8 +4,10 @@ using DataFrames
 include("./unit_commitment.jl")
 include("./post_processing.jl")
 
-COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, DEMAND = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :demand
+COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour 
+ITERATION = :iteration
 DEMAND = :demand
+NB_ITERATIONS = 10000
 
 function construct_economic_dispatch(uc, loads, remove_reserve_constraints = true, VLOL = 10^6)
     #TODO: remove loads from arguments
@@ -79,15 +81,16 @@ function fix_decision_variables(model, decision_variables::Array = [COMMIT, STAR
     end
 end
 
-function merge_solutions(solutions::Dict)
+function merge_solutions(solutions::Dict, merge_key = ITERATION)
     #TODO can be done more elegantly
-    solution_keys = keys(solutions[collect(keys(solutions))[1]]) # assumes all solutions have the same set of keys
+    # solution_keys = keys(solutions[collect(keys(solutions))[1]]) # assumes all solutions have the same set of keys
+    solution_keys = union([keys(v) for (k,v) in solutions]...)
     out = Dict(k => [] for k in solution_keys)
-    for d in keys(solutions), k in solution_keys
-        solutions[d][k][!,DEMAND] .= d
+    for d in keys(solutions), k in intersect(keys(solutions[d]), solution_keys)
+        solutions[d][k][!, merge_key] .= d
         push!(out[k], solutions[d][k])
     end
-    return NamedTuple(k => vcat(out[k]...) for k in keys(out))
+    return NamedTuple(k => vcat(out[k]..., cols = :union) for k in keys(out))
 end
 
 
@@ -104,18 +107,19 @@ function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
 end
 
 function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...)
-    solutions = Dict()
+    # Parsing arguments...
+    remove_reserve_constraints = (get(kwargs, :remove_reserve_constraints, nothing) == true)
+    max_iterations = (get(kwargs, :max_iterations, NB_ITERATIONS))
+    # parsing end
+
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable, mip_gap; kwargs...)
     optimize!(uc)
-    remove_reserve_constraints = false
-    if haskey(kwargs, :remove_reserve_constraints)
-        remove_reserve_constraints = kwargs[:remove_reserve_constraints] == true
-    end
     ed  = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints)
-    
+
+    solutions = Dict()
     # for k in collect(propertynames(loads[!, Not(HOUR)]))
-    for k in first(collect(propertynames(loads[!, Not(HOUR)])),1000)
-        update_demand(ed, loads[!,[HOUR,k]], k)
+    for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
+        update_demand(ed, loads[!,[HOUR, k]], k)
         solutions[k] = solve_economic_dispatch_(ed, gen_df, loads[!,[HOUR,k]], gen_variable; kwargs...)
     end
     return merge_solutions(solutions)

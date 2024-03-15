@@ -3,11 +3,11 @@
 # using VegaLite
 # using Debugger
 # using Infiltrator
-include("./utils.jl")
+include("./model/utils.jl")
 # include("./unit_commitment.jl")
-include("./economic_dispatch.jl")
-include("./plotting.jl")
-include("./processing.jl")
+include("./model/economic_dispatch.jl")
+include("./notebooks/plotting.jl")
+include("./notebooks/processing.jl")
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 
 function plot_results(solution)

@@ -1,9 +1,9 @@
 
 
-include("../utils.jl")
-include("../unit_commitment.jl")
-include("../economic_dispatch.jl")
-include("../processing.jl")
+include("../model/utils.jl")
+include("../model/unit_commitment.jl")
+include("../model/economic_dispatch.jl")
+include("../notebooks/processing.jl")
 # include("../plotting.jl")
 using CSV
 OBJECTIVE_VALUE = :objective_value

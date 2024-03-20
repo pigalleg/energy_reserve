@@ -1,5 +1,28 @@
 using DataFrames
 
+order = [
+  "battery",
+  "solar_photovoltaic_curtailment",
+  "onshore_wind_turbine_curtailment",
+  "small_hydroelectric_curtailment",
+  "solar_photovoltaic",
+  "natural_gas_fired_combustion_turbine",
+  "natural_gas_fired_combined_cycle",
+  "onshore_wind_turbine",
+  "hydroelectric_pumped_storage",
+  "small_hydroelectric",
+  "biomass",
+  "total",
+  "required"]
+
+function order_df(df_)
+  df = copy(df_)
+  df[!, :order] = indexin(df[!,:resource], order)
+  replace!(df[!,:order], nothing =>length(order))
+  sort!(df, :order, rev = true)
+  return select(df, Not(:order))
+end
+
 function generate_reserves(loads, margin_percentage, baseload = 0)
   required_reserve = DataFrame(
     hour = loads[!,:hour],
@@ -39,7 +62,7 @@ function calculate_supply_demand(solution, group_by = [:hour, :resource] )
       append!(supply, aux[!, push!(copy(group_by), :production_MW)])
       append!(demand,  aux[!,push!(copy(group_by), :demand_MW)], promote = true)
   end 
-  return supply, demand
+  return order_df(supply), order_df(demand)
 end
 
 function calculate_reserve(reserve, required_reserve, group_by_ = [:hour, :resource])
@@ -53,7 +76,7 @@ function calculate_reserve(reserve, required_reserve, group_by_ = [:hour, :resou
   aux = required_reserve
   aux.resource.= "required"
   append!(reserve, aux)
-  return reserve
+  return order_df(reserve)
 end
 
 function calculate_battery_reserve(solution_storage, solution_reserve, efficiency = 0.92)

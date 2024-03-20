@@ -12,6 +12,7 @@ color_map=Dict(
     "total" => "purple",
     "required" => "#F0092",
 )
+
 color_discrete_map = (key) -> if haskey(color_map, key) color_map[key] else "red" end
 map_stack_group = (x, exclude) -> 1*(x != exclude) + 2*(x == exclude)
 TIMESTEP = :hour

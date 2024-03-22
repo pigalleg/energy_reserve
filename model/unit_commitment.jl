@@ -350,14 +350,14 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage =
     end)
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, EnergyResUpCap[i in G_thermal, j in T, t in T; j <= t],
-        ERESUP[i, j, t] <= sum(
+        ERESUP[i, j, t] - sum(
             COMMIT[i,tt]*gen_df[gen_df.r_id .== i, :existing_cap_mw][1] - GEN[i,tt] for tt in T if (tt >= j)&(tt <= t)
-        )
+        ) <=0
     )
     @constraint(model, EnergyResDownCap[i in G_thermal, j in T, t in T; j <= t],
-        ERESDN[i, j, t] <= sum(
+        ERESDN[i, j, t] - sum(
             GEN[i,tt] - COMMIT[i,tt]*gen_df[gen_df.r_id .==i,:existing_cap_mw][1]*gen_df[gen_df.r_id .==i,:min_power][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
-        )
+        ) <=0
     )
     # (2) Reserves limited by ramp rates
     @constraint(model, EnergyResUpRamp[i in G_thermal, j in T, t in T; j <= t],
@@ -377,7 +377,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage =
             ERESUP[s, j, t] - (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] <= 0 #TODO: include delta_T
         )
         @constraint(model, EnergyResDownStorage[s in S, j in T, t in T; j <= t],
-            ERESUP[s, j, t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
+            ERESDN[s, j, t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
         )
     end
 

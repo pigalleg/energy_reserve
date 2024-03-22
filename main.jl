@@ -65,8 +65,9 @@ required_reserve, required_energy_reserve, required_energy_reserve_cumulated = g
 config = (
     ramp_constraints = true,
     storage = storage_df,
-    reserve = required_reserve,
-    # energy_reserve = required_energy_reserve,
+    # reserve = required_reserve,
+    energy_reserve = required_energy_reserve,
+    # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
     storage_envelopes = true
 )
@@ -109,6 +110,6 @@ function main_ed_multi_demand()
         )
         plot_results(solution)
 end
-# main_uc()
+main_uc()
 # main_ed()
 # main_ed_multi_demand()

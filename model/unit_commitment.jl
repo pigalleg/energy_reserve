@@ -330,7 +330,7 @@ function add_envelope_constraints(model, loads, storage)
     )
 end
 
-function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage = nothing)
+function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, storage_link_constraint)
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -371,14 +371,32 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage =
         )
     )
 
+    # @constraint(model, EnergyResUpZero[i in G_thermal, j in T, t in T; j <= t],
+    #     ERESUP[i, j, t] == 0
+    # )
+    # @constraint(model, EnergyResDnZero[i in G_thermal, j in T, t in T; j <= t],
+    #     ERESDN[i, j, t] == 0
+    # )
+
     # (3) Storage reserve
     if !isnothing(storage)
-        @constraint(model, EnrgyResUpStorage[s in S, j in T, t in T; j <= t],
+        @constraint(model, EnergyResUpStorage[s in S, j in T, t in T; j <= t],
             ERESUP[s, j, t] - (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] <= 0 #TODO: include delta_T
         )
         @constraint(model, EnergyResDownStorage[s in S, j in T, t in T; j <= t],
             ERESDN[s, j, t] - (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] <= 0 #TODO: include delta_T
         )
+        if storage_link_constraint
+            @constraint(model, EnergyResUpLink[s in S, j in T, t in T; j <= t],
+            ERESUP[s, j, t] - sum(ERESUP[s, tt, tt] for tt in T if (tt >= j)&(tt <= t)) == 0 
+            )
+            @constraint(model, EnergyResDownLink[s in S, j in T, t in T; j <= t],
+                ERESDN[s, j, t] - sum(ERESDN[s, tt, tt] for tt in T if (tt >= j)&(tt <= t)) == 0 
+            )
+        end
+        
+        
+
     end
 
     # (4) Overall reserve requirements
@@ -397,6 +415,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
     storage = nothing
     storage_envelopes = false
+    storage_link_constraint =  (get(kwargs, :storage_link_constraint, false))
     if haskey(kwargs,:storage)
         println("Adding storage...")
         storage = kwargs[:storage]
@@ -419,7 +438,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     end
     if haskey(kwargs,:energy_reserve)
         println("Adding energy reserve constraints...")
-        add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df, storage)
+        add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df, storage, storage_link_constraint)
     end
 
     return uc

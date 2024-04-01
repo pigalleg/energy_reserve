@@ -3,6 +3,7 @@ using PlotlyJS
 color_map=Dict(
     "battery" => "green",
     "solar_photovoltaic" => "gold",
+    "net_generation" => "goldenrod",
     "onshore_wind_turbine" => "skyblue",
     "hydroelectric_pumped_storage" => "darkblue",
     "small_hydroelectric" => "cornflowerblue",

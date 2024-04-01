@@ -11,6 +11,29 @@ function to_GMT(df)
   sort!(df, :hour)
 end
 
+function generate_input_data(n, input_location = DEFAULT_LOCATION)
+  gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data(input_location)
+  # gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data()
+  gen_df = pre_process_generators_data(gen_info, fuels)
+  loads_df, gen_variable_df, gen_df = pre_process_load_gen_variable(loads_df, gen_df, gen_variable_info)
+  
+  storage_df = pre_process_storage_data(storage_info)
+  random_loads_df = read_random_demand(input_location)
+
+  loads_multi_df, gen_variable_multi_df, random_loads_multi_df = filter_periods(n, loads_df, gen_variable_df, random_loads_df)
+  return gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df
+end
+
+function filter_periods(n, loads_df, gen_variable_df, random_loads_df)
+  T_period = (n*24+1):((n+1)*24)
+  # Filtering data with timeseries according to T_period
+  gen_variable_multi_df = gen_variable_df[in.(gen_variable_df.hour,Ref(T_period)),:]
+  loads_multi_df = loads_df[in.(loads_df.hour,Ref(T_period)),:]
+  random_loads_multi_df =  random_loads_df[in.(random_loads_df.hour,Ref(T_period)),:]
+
+  return loads_multi_df, gen_variable_multi_df, random_loads_multi_df
+end
+
 function read_data(input_location = DEFAULT_LOCATION)
   input_data_location = joinpath(input_location, "uc_data")
   gen_info = CSV.read(joinpath(input_data_location,"Generators_data.csv"), DataFrame)
@@ -28,34 +51,7 @@ function read_data(input_location = DEFAULT_LOCATION)
   return gen_info, fuels, loads, identity.(gen_variable), storage_info
 end
 
-function pre_process_gen_variable(gen_df, gen_variable_info)
-  gen_variable_info[!,NET_GENERAION_FULL_ID] .= 0 # net generation = -net_load for net_load < 0
-  aux = stack(gen_variable_info, Not(:hour), variable_name=:full_id, value_name=:cf)
-  return innerjoin(aux,
-    gen_df[gen_df.is_variable .== 1,[:r_id, :full_id, :existing_cap_mw]],
-    on = :full_id)
-end
 
-function negative_demand_to_generation(loads, gen_variable)
-  filter = loads.demand.<0
-  if !any(filter)
-    net_generation = copy(loads)
-    net_generation.generation .= 0
-    installed_capacity = 0
-    net_generation.cf .= 0
-  else
-    net_generation = loads[filter,:]
-    net_generation.generation = - net_generation.demand
-    loads[filter,:demand].=0
-    installed_capacity = maximum(net_generation.generation)
-    net_generation.cf = net_generation.generation./installed_capacity
-  end
-  net_generation.full_id .= NET_GENERAION_FULL_ID
-  gen_variable = leftjoin(gen_variable, select(net_generation, Not([:demand,:generation])), on = [:hour, :full_id], makeunique = true)
-  gen_variable = select(gen_variable, [:hour, :full_id, :r_id, :existing_cap_mw], [:cf_1,:cf] =>ByRow(coalesce) => [:cf])
-  gen_variable[gen_variable.full_id.== NET_GENERAION_FULL_ID, :existing_cap_mw] .= installed_capacity
-  return loads, sort(gen_variable,[:r_id,:hour])
-end
 
 function pre_process_generators_data(gen_info,  fuels)
   # Keep columns relevant to our UC model 
@@ -66,7 +62,7 @@ function pre_process_generators_data(gen_info,  fuels)
 
   # create "is_variable" column to indicate if this is a variable generation source (e.g. wind, solar):
   gen_df[!, :is_variable] .= false
-  gen_df[in(["onshore_wind_turbine","small_hydroelectric","solar_photovoltaic"]).(gen_df.resource),
+  gen_df[in(["onshore_wind_turbine","small_hydroelectric","solar_photovoltaic", "net_generation2"]).(gen_df.resource),
       :is_variable] .= true;
 
   # create full name of generator (including geographic location and cluster number)
@@ -88,6 +84,9 @@ function pre_process_generators_data(gen_info,  fuels)
   gen_df[last_, :existing_cap_mw] = 0
   gen_df[last_, :var_om_cost_per_mwh] = 0
   gen_df[last_, :is_variable] = true
+  gen_df[last_, :is_variable] = true
+  gen_df[last_, :ramp_up_percentage] = 1
+  gen_df[last_, :ramp_dn_percentage] = 1
   return identity.(gen_df)
 end
 
@@ -95,6 +94,41 @@ function pre_process_storage_data(storage_info)
   df = copy(storage_info)
   df.full_id = lowercase.(storage_info.region .* "_" .* storage_info.resource .* "_" .* string.(storage_info.cluster) .* ".0");
   return df
+end
+
+
+function pre_process_load_gen_variable(loads, gen_df, gen_variable_info)
+  # tranfers negative demand to generation
+  filter = loads.demand.<0
+  if !any(filter)
+    net_generation = copy(loads)
+    net_generation.generation .= 0
+    installed_capacity = 0
+    net_generation.cf .= 0
+  else
+    net_generation = loads[filter,:]
+    net_generation.generation = - net_generation.demand
+    loads[filter,:demand].=0
+    installed_capacity = maximum(net_generation.generation)
+    net_generation.cf = net_generation.generation./installed_capacity
+  end
+  net_generation.full_id .= NET_GENERAION_FULL_ID
+
+  gen_df = copy(gen_df)
+  gen_df[gen_df.full_id .== NET_GENERAION_FULL_ID, :existing_cap_mw] .=installed_capacity
+  gen_variable = pre_process_gen_variable(gen_df, gen_variable_info)
+  gen_variable = leftjoin(gen_variable, select(net_generation, Not([:demand,:generation])), on = [:hour, :full_id], makeunique = true)
+  gen_variable = select(gen_variable, [:hour, :full_id, :r_id, :existing_cap_mw], [:cf_1,:cf] =>ByRow(coalesce) => [:cf])
+  # gen_variable[gen_variable.full_id.== NET_GENERAION_FULL_ID, :existing_cap_mw] .= installed_capacity
+  return loads, sort(gen_variable,[:r_id,:hour]), gen_df
+end
+
+function pre_process_gen_variable(gen_df, gen_variable_info)
+  gen_variable_info[!,NET_GENERAION_FULL_ID] .= 0 # net generation = -net_load for net_load < 0
+  aux = stack(gen_variable_info, Not(:hour), variable_name=:full_id, value_name=:cf)
+  return innerjoin(aux,
+    gen_df[gen_df.is_variable .== 1,[:r_id, :full_id, :existing_cap_mw]],
+    on = :full_id)
 end
 
 # Functions to randomize demand. Not used by the rest of the code
@@ -112,7 +146,7 @@ function main()
   create_random_demand(loads, 1000)
 end
 
-function generate_configurations(required_energy_reserve, required_energy_reserve_cumulated)
+function generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
   configs = (
       base = (
           ramp_constraints = false,

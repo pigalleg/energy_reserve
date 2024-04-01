@@ -394,9 +394,6 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, 
                 ERESDN[s, j, t] - sum(ERESDN[s, tt, tt] for tt in T if (tt >= j)&(tt <= t)) == 0 
             )
         end
-        
-        
-
     end
 
     # (4) Overall reserve requirements
@@ -413,9 +410,11 @@ end
 function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     println("Constructing UC...")
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
+    
     storage = nothing
     storage_envelopes = false
-    storage_link_constraint =  (get(kwargs, :storage_link_constraint, false))
+    storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
+
     if haskey(kwargs,:storage)
         println("Adding storage...")
         storage = kwargs[:storage]
@@ -444,7 +443,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     return uc
 end
 
-function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...) 
+function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     optimize!(uc)
     solution = get_solution(uc)

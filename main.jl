@@ -44,11 +44,16 @@ function plot_results(solution)
     ]
 end
 
+# gen_info, fuels, loads, gen_variable_info, storage_info = read_data("./input/net_demand_case")
 gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
 gen_df = pre_process_generators_data(gen_info, fuels)
-gen_variable = pre_process_gen_variable(gen_df, gen_variable_info)
+
+loads, gen_variable = negative_demand_to_generation(loads, pre_process_gen_variable(gen_df, gen_variable_info))
+
+
 storage_df = pre_process_storage_data(storage_info)
 random_loads_df = read_random_demand()
+
 
 # A spring day
 # n=100
@@ -110,6 +115,19 @@ function main_ed_multi_demand()
         )
         plot_results(solution)
 end
+
+function main_uc_net_demand()
+
+    solution  = solve_unit_commitment(
+        gen_df,
+        loads_multi,
+        gen_variable_multi,
+        0.0001;
+        config...
+        )
+    plot_results(solution)
+end
+
 # main_uc()
 # main_ed()
 # main_ed_multi_demand()

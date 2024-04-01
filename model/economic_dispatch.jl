@@ -60,6 +60,7 @@ function update_demand(model, loads, key)
         LOL[t]<= loads[loads.hour .== t, key][1]    
     )
 
+    # TODO: possible bug: adding LOL term at each iteration
     SupplyDemand = model[:SupplyDemand]
     remove_variable_constraint(model, :SupplyDemand, false)
     @expression(model, SupplyDemand[t in T],

@@ -9,6 +9,7 @@ ITERATION = :iteration
 DEMAND = :demand
 NB_ITERATIONS = 10000
 
+# TODO change gen_variable => gen_varialbe_df, loads => loads_df
 function construct_economic_dispatch(uc, loads, remove_reserve_constraints = true, VLOL = 10^6)
     #TODO: remove loads from arguments
     println("Constructing EC...")
@@ -50,7 +51,7 @@ function remove_variable_constraint(model, key, delete_ = true)
     unregister(model, key)
 end
 
-function update_demand(model, loads, key)
+function update_demand(model, loads, key = DEMAND)
     # Update demand values and introduces LOL at supply-demand balance
     T, __ = create_time_sets(loads)
     LOL = model[LOL_]
@@ -70,6 +71,14 @@ function update_demand(model, loads, key)
     remove_variable_constraint(model, :SupplyDemandBalance)
     @constraint(model, SupplyDemandBalance[t in T], 
         SupplyDemand[t] == loads[loads.hour .== t, key][1]
+    )
+end
+
+function update_generation(model, gen_variable)
+    remove_variable_constraint(model, :Cap_var)
+    GEN = model[:GEN]
+    @constraint(model, Cap_var[i in 1:nrow(gen_variable)], 
+            GEN[gen_variable[i,:r_id], gen_variable[i,:hour] ] <= gen_variable[i,:cf]*gen_variable[i,:existing_cap_mw]
     )
 end
 
@@ -115,13 +124,15 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
 
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable, mip_gap; kwargs...)
     optimize!(uc)
-    ed  = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints)
 
     solutions = Dict()
     # for k in collect(propertynames(loads[!, Not(HOUR)]))
     for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
-        update_demand(ed, loads[!,[HOUR, k]], k)
-        solutions[k] = solve_economic_dispatch_(ed, gen_df, loads[!,[HOUR,k]], gen_variable; kwargs...)
+        gen_df_k, loads_df_k, gen_variable_k = pre_process_load_gen_variable(gen_df, rename(loads[!,[HOUR,k]], k=>DEMAND), gen_variable)
+        update_demand(ed, loads_df_k)
+        update_generation(ed, gen_variable_k)
+        solutions[k] = solve_economic_dispatch_(ed, gen_df_k, loads_df_k, gen_variable_k; kwargs...)
     end
     return merge_solutions(solutions)
 end

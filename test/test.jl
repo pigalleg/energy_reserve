@@ -54,8 +54,12 @@ function test1(input_location = G_DEFAULT_LOCATION, reference_location = "./test
 end
 
 function test2()
+    test1("./input/net_demand_base_case", "./test/reference_net_demand_base_case.csv")
+end
+
+function test3(input_location = G_DEFAULT_LOCATION)
     # configs_ = (base = configs[:base],)
-    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, input_location)
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE, 0)
     configs = generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
 
@@ -78,6 +82,8 @@ function test2()
     println(out)
 end
 
-function test3()
-    test1("./input/net_demand_base_case", "./test/reference_net_demand_base_case.csv")
+function test4()
+    test3("./input/net_demand_case")
 end
+
+

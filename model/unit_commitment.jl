@@ -4,7 +4,8 @@ using DataFrames
 # using HiGHS
 include("./utils.jl")
 include("./post_processing.jl")
-# using Infiltrator
+
+# TODO change gen_variable => gen_varialbe_df, loads => loads_df
 function create_generators_sets(gen_df)
     # Thermal resources for which unit commitment constraints apply
     G_thermal = gen_df[gen_df[!,:up_time] .> 0,:r_id] 
@@ -68,6 +69,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
         START[i,t] for i in G_thermal for t in T)
     )
     # Demand balance constraint (supply must = demand in all time periods)
+    # Expression is constructed to reuse during ED
     @expression(model, SupplyDemand[t in T],
         sum(GEN[i,t] for i in G)
     )
@@ -89,6 +91,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
 
     # 3. variable generation, accounting for hourly capacity factor
     # TODO: The way this constraint is declared does not follow general style
+    # Needs to be redefined at each ED
     @constraint(model, Cap_var[i in 1:nrow(gen_variable)], 
             GEN[gen_variable[i,:r_id], gen_variable[i,:hour] ] <= 
                         gen_variable[i,:cf] *

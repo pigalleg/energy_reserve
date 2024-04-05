@@ -107,7 +107,21 @@ function main_uc_net_demand()
     plot_results(solution)
 end
 
+function main_ed_multi_demand_net_demand()
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, "./input/net_demand_case")
+    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
+    solution  = solve_economic_dispatch(
+        gen_df,
+        random_loads_multi_df,
+        gen_variable_multi_df,
+        G_MIP_GAP;
+        config...
+        )
+        plot_results(solution)
+end
+
 # main_uc()
 # main_ed()
 # main_ed_multi_demand()
 # main_uc_net_demand()
+# main_ed_multi_demand_net_demand()

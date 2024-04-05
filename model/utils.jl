@@ -15,7 +15,7 @@ function generate_input_data(n, input_location = G_DEFAULT_LOCATION)
   gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data(input_location)
   # gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data()
   gen_df = pre_process_generators_data(gen_info, fuels)
-  loads_df, gen_variable_df, gen_df = pre_process_load_gen_variable(loads_df, gen_df, gen_variable_info)
+  gen_df, loads_df, gen_variable_df  = pre_process_load_gen_variable(gen_df, loads_df, pre_process_gen_variable(gen_df, gen_variable_info))
   
   storage_df = pre_process_storage_data(storage_info)
   random_loads_df = read_random_demand(input_location)
@@ -97,30 +97,33 @@ function pre_process_storage_data(storage_info)
 end
 
 
-function pre_process_load_gen_variable(loads, gen_df, gen_variable_info)
+function pre_process_load_gen_variable(gen_df, loads_df, gen_variable)
   # tranfers negative demand to generation
-  filter = loads.demand.<0
+  filter = loads_df.demand.<0
   if !any(filter)
-    net_generation = copy(loads)
+    net_generation = copy(loads_df)
     net_generation.generation .= 0
     installed_capacity = 0
     net_generation.cf .= 0
   else
-    net_generation = loads[filter,:]
+    net_generation = loads_df[filter,:]
     net_generation.generation = - net_generation.demand
-    loads[filter,:demand].=0
+    loads_df[filter,:demand].=0
     installed_capacity = maximum(net_generation.generation)
     net_generation.cf = net_generation.generation./installed_capacity
   end
   net_generation.full_id .= G_NET_GENERAION_FULL_ID
 
   gen_df = copy(gen_df)
-  gen_df[gen_df.full_id .== G_NET_GENERAION_FULL_ID, :existing_cap_mw] .=installed_capacity
-  gen_variable = pre_process_gen_variable(gen_df, gen_variable_info)
+  gen_df[gen_df.full_id .== G_NET_GENERAION_FULL_ID, :existing_cap_mw] .=installed_capacity # Assumes that the element is already in the df
+
+  gen_variable[gen_variable[!, :full_id] .== G_NET_GENERAION_FULL_ID,:cf] .= 0 # values reset to zero for re-iterations on the ED
+  gen_variable[gen_variable[!, :full_id] .== G_NET_GENERAION_FULL_ID,:existing_cap_mw] .= 0 # values reset to zero for re-iterations on the ED
+
   gen_variable = leftjoin(gen_variable, select(net_generation, Not([:demand,:generation])), on = [:hour, :full_id], makeunique = true)
   gen_variable = select(gen_variable, [:hour, :full_id, :r_id, :existing_cap_mw], [:cf_1,:cf] =>ByRow(coalesce) => [:cf])
   # gen_variable[gen_variable.full_id.== G_NET_GENERAION_FULL_ID, :existing_cap_mw] .= installed_capacity
-  return loads, sort(gen_variable,[:r_id,:hour]), gen_df
+  return gen_df, loads_df, sort(gen_variable,[:r_id,:hour])
 end
 
 function pre_process_gen_variable(gen_df, gen_variable_info)
@@ -133,7 +136,8 @@ end
 
 # Functions to randomize demand. Not used by the rest of the code
 function create_random_demand(loads, nb_samples, input_location = G_DEFAULT_LOCATION)
-  out = transform(loads, :demand => ByRow(x ->  [rand(Normal(x, x*0.1/2)) for i in 1:nb_samples]) => ["demand_$i" for i in 1:nb_samples])
+  # example: create_random_demand(loads, 1000)
+  out = transform(loads, :demand => ByRow(x ->  [rand(Normal(x, abs(x)*0.1/2)) for i in 1:nb_samples]) => ["demand_$i" for i in 1:nb_samples])
   CSV.write(joinpath(input_location, "demand","random_demand.csv"), out)
 end
 

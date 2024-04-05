@@ -38,9 +38,12 @@ function plot_results(solution)
     ]
 end
 
-n=100
-gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(n)
-required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, 0.05, 0)
+G_N=100
+G_RESERVE = 0.1
+G_MIP_GAP = 0.0001
+
+gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
+required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
 
 config = (
     ramp_constraints = true,
@@ -63,7 +66,7 @@ function main_uc()
         gen_df,
         loads_multi_df,
         gen_variable_multi_df,
-        0.0001;
+        G_MIP_GAP;
         config...
         )
     plot_results(solution)
@@ -74,7 +77,7 @@ function main_ed()
         gen_df,
         loads_multi_df,
         gen_variable_multi_df,
-        0.0001;
+        G_MIP_GAP;
         config...
         )
         plot_results(solution)
@@ -85,20 +88,20 @@ function main_ed_multi_demand()
         gen_df,
         random_loads_multi_df,
         gen_variable_multi_df,
-        0.0001;
+        G_MIP_GAP;
         config...
         )
         plot_results(solution)
 end
 
 function main_uc_net_demand()
-    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(n, "./input/net_demand_case")
-    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, 0.05, 0)
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, "./input/net_demand_case")
+    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
     solution  = solve_unit_commitment(
         gen_df,
         loads_multi_df,
         gen_variable_multi_df,
-        0.0001;
+        G_MIP_GAP;
         config...
         )
     plot_results(solution)
@@ -107,4 +110,4 @@ end
 # main_uc()
 # main_ed()
 # main_ed_multi_demand()
-main_uc_net_demand()
+# main_uc_net_demand()

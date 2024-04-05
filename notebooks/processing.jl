@@ -17,6 +17,9 @@ order = [
   "total",
   "required"]
 
+
+G_NET_GENERAION_FULL_ID = "net_generation"
+
 function order_df(df_)
   df = copy(df_)
   df[!, :order] = indexin(df[!,:resource], order)
@@ -25,11 +28,15 @@ function order_df(df_)
   return select(df, Not(:order))
 end
 
-function generate_reserves(loads, margin_percentage, baseload = 0)
+function generate_reserves(loads, gen_variable, margin_percentage, baseload = 0)
+  filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
+  net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
+  
   required_reserve = DataFrame(
     hour = loads[!,:hour],
-    reserve_up_MW = baseload .+ loads[!,:demand].*margin_percentage,
-    reserve_down_MW = loads[!,:demand].*margin_percentage)
+    reserve_up_MW = baseload .+ (loads[!,:demand] .+ net_gen).*margin_percentage,
+    reserve_down_MW = (loads[!,:demand] .+ net_gen).*margin_percentage)
+  required_reserve = (required_reserve.>0).*required_reserve .- (required_reserve.<0).*required_reserve # negative to positive values
 
   required_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
   required_energy_reserve = DataFrame(required_energy_reserve)

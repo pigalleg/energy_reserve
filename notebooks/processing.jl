@@ -5,6 +5,7 @@ order = [
   "solar_photovoltaic_curtailment",
   "onshore_wind_turbine_curtailment",
   "small_hydroelectric_curtailment",
+  "total_loss_of_load",
   "net_generation_curtailment",
   "solar_photovoltaic",
   "net_generation",
@@ -53,11 +54,16 @@ end
 function calculate_supply_demand(solution, group_by = [:hour, :resource] )
   #Supply-demand computation
   # group_by = intersect(propertynames(solution.generation),[:hour, :resource, :iteration])
-
-  supply = combine(groupby(solution.generation, group_by), :production_MW => sum, renamecols=false)
   demand = combine(groupby(solution.demand, group_by), :demand_MW => sum, renamecols=false)
-
-
+  # replace!(aux.curtailment_MW, missing => 0)
+  if :LOL_MW in propertynames(solution.demand)
+    aux = combine(groupby(solution.demand, group_by), :LOL_MW => sum, renamecols=false)
+    aux = aux[aux.LOL_MW.>0,:]
+    rename!(aux, :LOL_MW => :demand_MW)
+    transform!(aux, :resource .=> ByRow(x -> x*"_loss_of_load") => :resource)
+    append!(demand, aux, promote = true)
+  end
+  supply = combine(groupby(solution.generation, group_by), :production_MW => sum, renamecols=false)
   aux = combine(groupby(solution.generation, group_by), :curtailment_MW => sum, renamecols=false)
   # replace!(aux.curtailment_MW, missing => 0)
   aux = aux[aux.curtailment_MW.>0,:]

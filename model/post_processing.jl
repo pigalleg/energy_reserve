@@ -148,6 +148,7 @@ function get_enriched_demand(solution, loads)
     demand.r_id .= missing
     demand.resource .= "total"
     if haskey(solution, :LOL)
+        demand.demand_MW =  demand.demand_MW - solution[:LOL].value
         demand = leftjoin(
             demand, 
             rename(solution[:LOL], :value => :LOL_MW),

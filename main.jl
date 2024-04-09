@@ -80,7 +80,7 @@ function main_ed()
         G_MIP_GAP;
         config...
         )
-        plot_results(solution)
+    plot_results(solution)
 end
 
 function main_ed_multi_demand()
@@ -91,7 +91,7 @@ function main_ed_multi_demand()
         G_MIP_GAP;
         config...
         )
-        plot_results(solution)
+    plot_results(solution)
 end
 
 function main_uc_net_demand()
@@ -117,7 +117,7 @@ function main_ed_multi_demand_net_demand()
         G_MIP_GAP;
         config...
         )
-        plot_results(solution)
+    plot_results(solution)
 end
 
 # main_uc()

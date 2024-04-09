@@ -24,6 +24,13 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints = tru
     @objective(ed, Min, 
         objective_function(ed) + VLOL*sum(LOL[t] for t in T)
     )
+
+    SupplyDemand = ed[:SupplyDemand]
+    remove_variable_constraint(ed, :SupplyDemand, false)
+    @expression(ed, SupplyDemand[t in T],
+        SupplyDemand[t] + LOL[t]
+    )
+
     # By default, (energy) reserve constraints are removed 
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
@@ -61,13 +68,7 @@ function update_demand(model, loads, key = DEMAND)
         LOL[t]<= loads[loads.hour .== t, key][1]    
     )
 
-    # TODO: possible bug: adding LOL term at each iteration
     SupplyDemand = model[:SupplyDemand]
-    remove_variable_constraint(model, :SupplyDemand, false)
-    @expression(model, SupplyDemand[t in T],
-        SupplyDemand[t] + LOL[t]
-    )
-
     remove_variable_constraint(model, :SupplyDemandBalance)
     @constraint(model, SupplyDemandBalance[t in T], 
         SupplyDemand[t] == loads[loads.hour .== t, key][1]
@@ -91,21 +92,22 @@ function fix_decision_variables(model, decision_variables::Array = [COMMIT, STAR
     end
 end
 
-function merge_solutions(solutions::Dict, merge_key = ITERATION)
+function merge_solutions(solutions::Dict, merge_keys = [ITERATION])
     #TODO can be done more elegantly
     # solution_keys = keys(solutions[collect(keys(solutions))[1]]) # assumes all solutions have the same set of keys
     solution_keys = union([keys(v) for (k,v) in solutions]...)
-    out = Dict(k => [] for k in solution_keys)
+    aux = Dict(k => [] for k in solution_keys)
+
     for d in keys(solutions), k in intersect(keys(solutions[d]), solution_keys)
-        solutions[d][k][!, merge_key] .= d
-        push!(out[k], solutions[d][k])
+        aux_ = DataFrame(collect(repeat([isa(d,Tuple) ? d : tuple(d)], size(solutions[d][k],1))), merge_keys)
+        push!(aux[k], hcat(solutions[d][k], aux_))
     end
-    return NamedTuple(k => vcat(out[k]..., cols = :union) for k in keys(out))
+    return NamedTuple(k => vcat(aux[k]..., cols = :union) for k in keys(aux))
 end
 
 
 function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
-    println("Solving EC...")
+    println("Solving ED...")
     optimize!(ed)
     solution = get_solution(ed)
     if haskey(kwargs,:enriched_solution)

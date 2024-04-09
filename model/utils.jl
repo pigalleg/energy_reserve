@@ -11,7 +11,7 @@ function to_GMT(df)
   sort!(df, :hour)
 end
 
-function generate_input_data(n, input_location = G_DEFAULT_LOCATION)
+function generate_input_data(simulation_day, input_location = G_DEFAULT_LOCATION)
   gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data(input_location)
   # gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data()
   gen_df = pre_process_generators_data(gen_info, fuels)
@@ -20,12 +20,12 @@ function generate_input_data(n, input_location = G_DEFAULT_LOCATION)
   storage_df = pre_process_storage_data(storage_info)
   random_loads_df = read_random_demand(input_location)
 
-  loads_multi_df, gen_variable_multi_df, random_loads_multi_df = filter_periods(n, loads_df, gen_variable_df, random_loads_df)
+  loads_multi_df, gen_variable_multi_df, random_loads_multi_df = filter_periods(simulation_day, loads_df, gen_variable_df, random_loads_df)
   return gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df
 end
 
-function filter_periods(n, loads_df, gen_variable_df, random_loads_df)
-  T_period = (n*24+1):((n+1)*24)
+function filter_periods(simulation_day, loads_df, gen_variable_df, random_loads_df)
+  T_period = (simulation_day*24+1):((simulation_day+1)*24)
   # Filtering data with timeseries according to T_period
   gen_variable_multi_df = gen_variable_df[in.(gen_variable_df.hour,Ref(T_period)),:]
   loads_multi_df = loads_df[in.(loads_df.hour,Ref(T_period)),:]
@@ -62,7 +62,7 @@ function pre_process_generators_data(gen_info,  fuels)
 
   # create "is_variable" column to indicate if this is a variable generation source (e.g. wind, solar):
   gen_df[!, :is_variable] .= false
-  gen_df[in(["onshore_wind_turbine","small_hydroelectric","solar_photovoltaic", "net_generation2"]).(gen_df.resource),
+  gen_df[in(["onshore_wind_turbine","small_hydroelectric","solar_photovoltaic", "net_generation"]).(gen_df.resource),
       :is_variable] .= true;
 
   # create full name of generator (including geographic location and cluster number)

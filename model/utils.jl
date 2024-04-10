@@ -115,10 +115,10 @@ function pre_process_load_gen_variable(gen_df, loads_df, gen_variable)
   net_generation.full_id .= G_NET_GENERAION_FULL_ID
 
   gen_df = copy(gen_df)
-  gen_df[gen_df.full_id .== G_NET_GENERAION_FULL_ID, :existing_cap_mw] .=installed_capacity # Assumes that the element is already in the df
+  gen_df[gen_df.full_id .== G_NET_GENERAION_FULL_ID, :existing_cap_mw] .= installed_capacity # Assumes that the element is already in the df
 
   gen_variable[gen_variable[!, :full_id] .== G_NET_GENERAION_FULL_ID,:cf] .= 0 # values reset to zero for re-iterations on the ED
-  gen_variable[gen_variable[!, :full_id] .== G_NET_GENERAION_FULL_ID,:existing_cap_mw] .= 0 # values reset to zero for re-iterations on the ED
+  gen_variable[gen_variable[!, :full_id] .== G_NET_GENERAION_FULL_ID,:existing_cap_mw] .= installed_capacity # values reset to zero for re-iterations on the ED
 
   gen_variable = leftjoin(gen_variable, select(net_generation, Not([:demand,:generation])), on = [:hour, :full_id], makeunique = true)
   gen_variable = select(gen_variable, [:hour, :full_id, :r_id, :existing_cap_mw], [:cf_1,:cf] =>ByRow(coalesce) => [:cf])

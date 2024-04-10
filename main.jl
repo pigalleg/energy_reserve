@@ -38,7 +38,8 @@ function plot_results(solution)
     ]
 end
 
-G_N=100
+G_N = 100
+# G_N = 68
 G_RESERVE = 0.1
 G_MIP_GAP = 0.0001
 

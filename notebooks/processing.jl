@@ -1,5 +1,6 @@
 using DataFrames
-
+using Parquet2: writefile, Dataset
+using MathOptInterface: TerminationStatusCode
 order = [
   "battery",
   "solar_photovoltaic_curtailment",
@@ -110,3 +111,16 @@ function calculate_battery_reserve(solution_storage, solution_reserve, efficienc
   out.reserve_up_MW_eff .= -out.reserve_up_MW*1/efficiency
   return out
 end
+
+
+function solution_to_parquet(s, name, file_path)
+  for (k,v) in zip(keys(s), s)
+    println(k)
+    writefile(file_path*"/"*name*"_"*string(k)*".parquet", change_type(change_type(v, Symbol, string), TerminationStatusCode, string))
+  end
+end
+
+function change_type(df, from, to)
+  return mapcols(x -> eltype(x) == from ? to.(x) : x, df)
+end
+

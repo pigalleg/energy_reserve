@@ -41,6 +41,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
     
     model = Model(Gurobi.Optimizer)
     set_optimizer_attribute(model, "MIPGap", mip_gap)
+    # set_optimizer_attribute(model, "OutputFlag", 0)
 
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)

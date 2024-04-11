@@ -62,7 +62,7 @@ ed_config = (
 config = merge(config, ed_config)
 
 
-function main_uc()
+function uc()
     solution  = solve_unit_commitment(
         gen_df,
         loads_multi_df,
@@ -73,7 +73,7 @@ function main_uc()
     plot_results(solution)
 end
 
-function main_ed()
+function ed()
     solution  = solve_economic_dispatch(
         gen_df,
         loads_multi_df,
@@ -84,7 +84,7 @@ function main_ed()
     plot_results(solution)
 end
 
-function main_ed_multi_demand()
+function ed_multi_demand()
     solution  = solve_economic_dispatch(
         gen_df,
         random_loads_multi_df,
@@ -95,7 +95,7 @@ function main_ed_multi_demand()
     plot_results(solution)
 end
 
-function main_uc_net_demand()
+function uc_net_demand()
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, "./input/net_demand_case")
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
     solution  = solve_unit_commitment(
@@ -108,7 +108,7 @@ function main_uc_net_demand()
     plot_results(solution)
 end
 
-function main_ed_multi_demand_net_demand()
+function ed_multi_demand_net_demand()
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, "./input/net_demand_case")
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
     solution  = solve_economic_dispatch(
@@ -121,8 +121,52 @@ function main_ed_multi_demand_net_demand()
     plot_results(solution)
 end
 
-# main_uc()
-# main_ed()
-# main_ed_multi_demand()
-# main_uc_net_demand()
-# main_ed_multi_demand_net_demand()
+function generate_ed_solutions(days, input_folder, output_folder)
+    max_iterations = 100
+    ed_config = Dict(:max_iterations => max_iterations)
+    configurations =  [:base_ramp_storage_reserve, :base_ramp_storage_envelopes, :base_ramp_storage_energy_reserve_cumulated]
+    s_uc = Dict()
+    s_ed = Dict()
+    
+    for day in days, k in configurations
+        gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
+        required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
+        configs = Dict(k => merge(v, ed_config) for (k,v) in generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
+
+        s_uc[(day,k)] = solve_unit_commitment(
+            gen_df,
+            loads_multi_df,
+            gen_variable_multi_df,
+            G_MIP_GAP;
+            configs[k]...
+        )
+        s_ed[(day,k)] = solve_economic_dispatch(
+            gen_df,
+            random_loads_multi_df,
+            gen_variable_multi_df,
+            G_MIP_GAP;
+            configs[k]...
+        )
+    end
+    s_ed = merge_solutions(s_ed, [:day, :configuration])
+    s_uc = merge_solutions(s_uc, [:day, :configuration])
+
+    s_uc = Dict(pairs(s_uc))
+    s_uc[:reserve] = vcat(s_uc[:reserve], s_uc[:energy_reserve][s_uc[:energy_reserve].hour.==s_uc[:energy_reserve].hour_i,:][:,Not(:hour_i)])
+    s_uc = NamedTuple(s_uc)
+    folder = joinpath(output_folder,"n_$(join(days,"-"))")
+    solution_to_parquet(s_uc, "s_uc", folder)
+    solution_to_parquet(s_ed, "s_ed", folder)
+
+end
+# uc()
+# ed()
+# ed_multi_demand()
+# uc_net_demand()
+# ed_multi_demand_net_demand()
+# days = [15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350]
+# days = [289]
+# for day in days
+#     generate_ed_solutions([day], "./input/base_case", "./notebooks/output")
+#     generate_ed_solutions([day], "./input/base_case", "./notebooks/output")
+# end

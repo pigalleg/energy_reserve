@@ -1,5 +1,5 @@
 using DataFrames
-using Parquet2: writefile, Dataset
+using Parquet2
 using MathOptInterface: TerminationStatusCode
 order = [
   "battery",
@@ -113,14 +113,39 @@ function calculate_battery_reserve(solution_storage, solution_reserve, efficienc
 end
 
 
-function solution_to_parquet(s, name, file_path)
-  for (k,v) in zip(keys(s), s)
-    println(k)
-    writefile(file_path*"/"*name*"_"*string(k)*".parquet", change_type(change_type(v, Symbol, string), TerminationStatusCode, string))
+function solution_to_parquet(s, file_name, file_folder)
+  # TODO move to post_processing
+  function change_type(df, from, to)
+    return mapcols(x -> eltype(x) == from ? to.(x) : x, df)
   end
+  
+  if !isdir(file_folder) mkdir(file_folder) end
+  println("writing...")
+  for (k,v) in zip(propertynames(s), s)
+    println("$(file_name)_$k")
+    Parquet2.writefile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"), change_type(change_type(v, Symbol, string), TerminationStatusCode, string))
+  end
+  println("...done")
 end
 
-function change_type(df, from, to)
-  return mapcols(x -> eltype(x) == from ? to.(x) : x, df)
-end
 
+function parquet_to_solution(file_name, file_folder)
+  # TODO 1 convert to TerminationStatusCode
+  # TODO 2 move to post_processing
+  function read_parquet_and_convert(file)
+    columns_to_symbol = [:configuration, :iteration]
+    println(file)
+    out = DataFrame(Parquet2.Dataset(file); copycols=false)
+    for k in intersect(columns_to_symbol, propertynames(out))
+      out[!, k] = Symbol.(out[!, k])
+    end
+    return out
+    end
+
+  keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar]
+  keys = [k for k in keys if isfile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"))]
+  println("reading...")
+  aux = [read_parquet_and_convert(joinpath(file_folder, file_name*"_"*string(k)*".parquet")) for k in keys]
+  println("...done")
+  return NamedTuple(keys .=> aux)
+end

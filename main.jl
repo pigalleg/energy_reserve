@@ -38,8 +38,7 @@ function plot_results(solution)
     ]
 end
 
-G_N = 100
-# G_N = 68
+G_N = 100 # 68
 G_RESERVE = 0.1
 G_MIP_GAP = 0.0001
 
@@ -123,11 +122,10 @@ function ed_multi_demand_net_demand()
     plot_results(solution)
 end
 
-function generate_ed_solutions(days, input_folder, output_folder)
+function generate_ed_solutions_(days, input_folder, output_folder)
     max_iterations = 100
     ed_config = Dict(:max_iterations => max_iterations)
-    # configurations =  [:base_ramp_storage_reserve, :base_ramp_storage_envelopes, :base_ramp_storage_energy_reserve_cumulated]
-    configurations =  [:base_ramp_storage_envelopes_up_0_25_dn_0_25, :base_ramp_storage_envelopes_up_0_5_dn_0_5, :base_ramp_storage_envelopes_up_0_75_dn_0_75, :base_ramp_storage_envelopes_up_1_dn_1, :base_ramp_storage_energy_reserve_cumulated]
+    configurations =  [:base_ramp_storage_envelopes_up_0_dn_0, :base_ramp_storage_envelopes_up_0_25_dn_0_25, :base_ramp_storage_envelopes_up_0_5_dn_0_5, :base_ramp_storage_envelopes_up_0_75_dn_0_75, :base_ramp_storage_envelopes_up_1_dn_1, :base_ramp_storage_energy_reserve_cumulated]
     s_uc = Dict()
     s_ed = Dict()
     
@@ -160,16 +158,33 @@ function generate_ed_solutions(days, input_folder, output_folder)
     folder = joinpath(output_folder,"n_$(join(days,"-"))")
     solution_to_parquet(s_uc, "s_uc", folder)
     solution_to_parquet(s_ed, "s_ed", folder)
-
 end
-# uc()
-# ed()
-# ed_multi_demand()
-# uc_net_demand()
-# ed_multi_demand_net_demand()
-days = [15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350]
-# days = [289]
-for day in days
-    generate_ed_solutions([day], "./input/base_case", "./notebooks/output2")
-    generate_ed_solutions([day], "./input/base_case", "./notebooks/output2")
+
+function generate_ed_solutions(days, input_folder, output_folder)
+    # generate_ed_solutions([15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350], "./input/base_case", "./output/solutions_v3)
+    for day in days
+        generate_ed_solutions_([day], input_folder, output_folder)
+        generate_ed_solutions_([day], input_folder, output_folder)
+    end
+end
+
+function merge_ed_solutions(solution_folders, folder_path)
+    # merge_ed_solutions(["n_15", "n_45", "n_75", "n_106", "n_136", "n_167", "n_197", "n_228"], joinpath(".","output", "solutions_v1.2"))
+    read = true
+    write = true
+    if read
+        keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar]
+        s_uc = [parquet_to_solution("s_uc", joinpath(folder_path, s)) for s in solution_folders]
+        s_ed = [parquet_to_solution("s_ed", joinpath(folder_path, s)) for s in solution_folders]
+        s_uc = NamedTuple(k => vcat([s[k] for s in s_uc]..., cols = :union) for k in keys)
+        s_ed = NamedTuple(k => vcat([s[k] for s in s_ed]..., cols = :union) for k in keys)
+    end
+    # @infiltrate
+    if write
+        name = "n_$(replace(join(solution_folders, "-"), "n_" =>""))"
+        # s_uc = NamedTuple(k => vcat([s[k] for s in s_uc]...) for k in keys)
+        solution_to_parquet(s_uc, "s_uc", joinpath(folder_path, name))
+        solution_to_parquet(s_ed, "s_uc", joinpath(folder_path, name))
+    end
+    return s_uc, s_ed
 end

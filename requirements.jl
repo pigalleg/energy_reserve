@@ -2,12 +2,13 @@ using Pkg
 dependencies = [
     "JuMP",
     "Gurobi",
-    "DataFrame",
+    "DataFrames",
     "CSV",
     "Parquet2",
-    "PlotlyJS"
+    "PlotlyJS",
     "Random",
-    "Distributions"
+    "Distributions",
+    "MathOptInterface"
 ]
 
 Pkg.add(dependencies)

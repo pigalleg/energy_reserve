@@ -227,7 +227,7 @@ function add_ramp_constraints(model, loads, gen_df)
                             gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1])
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false)
+function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false, μ_up = 1, μ_dn = 1)
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -274,7 +274,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
         # )
         if storage_envelopes
             println("Adding storage envelopes...")
-            add_envelope_constraints(model, loads, storage)
+            add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
         end
     end
 
@@ -287,7 +287,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
     )
 end
 
-function add_envelope_constraints(model, loads, storage)
+function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
     S = create_storage_sets(storage)
     RESUP = model[:RESUP]
     RESDN = model[:RESDN]
@@ -302,10 +302,10 @@ function add_envelope_constraints(model, loads, storage)
         SOEDN[S, T_incr] >= 0
     end)
     @constraint(model, SOEUpEvol[s in S, t in T], 
-        SOEUP[s,t] - (SOEUP[s,t-1] + (CH[s,t] + RESDN[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
+        SOEUP[s,t] - (SOEUP[s,t-1] + (CH[s,t] + μ_up*RESDN[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - DIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
     @constraint(model, SOEDnEvol[s in S, t in T], 
-        SOEDN[s,t] - (SOEDN[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + RESUP[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
+        SOEDN[s,t] - (SOEDN[s,t-1] + CH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_dn*RESUP[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]) == 0
     ) #TODO: add delta_T
     
     # SOEUP_T_initial = SOE_T_initial
@@ -418,6 +418,8 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     storage = nothing
     storage_envelopes = false
     storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
+    μ_up = get(kwargs, :μ_up, 1)
+    μ_dn = get(kwargs, :μ_dn, 1)
 
     if haskey(kwargs,:storage)
         println("Adding storage...")
@@ -437,7 +439,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     end
     if haskey(kwargs,:reserve)
         println("Adding reserve constraints...")
-        add_reserve_constraints(uc, kwargs[:reserve], loads, gen_df, storage, storage_envelopes)
+        add_reserve_constraints(uc, kwargs[:reserve], loads, gen_df, storage, storage_envelopes, μ_up, μ_dn)
     end
     if haskey(kwargs,:energy_reserve)
         println("Adding energy reserve constraints...")

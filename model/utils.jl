@@ -208,6 +208,56 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           enriched_solution = true,
           storage_envelopes = true
       ),
+      base_ramp_storage_envelopes_up_0_25_dn_0_25 = (
+          ramp_constraints = true,
+          storage = storage_df,
+          reserve = required_reserve,
+          # energy_reserve = required_energy_reserve,
+          enriched_solution = true,
+          storage_envelopes = true,
+          μ_up = .25,
+          μ_dn = .25
+      ),
+      base_ramp_storage_envelopes_up_0_5_dn_0_5 = (
+          ramp_constraints = true,
+          storage = storage_df,
+          reserve = required_reserve,
+          # energy_reserve = required_energy_reserve,
+          enriched_solution = true,
+          storage_envelopes = true,
+          μ_up = 0.5,
+          μ_dn = 0.5
+      ),
+      base_ramp_storage_envelopes_up_0_75_dn_0_75 = (
+          ramp_constraints = true,
+          storage = storage_df,
+          reserve = required_reserve,
+          # energy_reserve = required_energy_reserve,
+          enriched_solution = true,
+          storage_envelopes = true,
+          μ_up = .75,
+          μ_dn = .75
+      ),
+      base_ramp_storage_envelopes_up_0_dn_0 = (
+          ramp_constraints = true,
+          storage = storage_df,
+          reserve = required_reserve,
+          # energy_reserve = required_energy_reserve,
+          enriched_solution = true,
+          storage_envelopes = true,
+          μ_up = 0,
+          μ_dn = 0
+      ),
+      base_ramp_storage_envelopes_up_1_dn_1 = (
+          ramp_constraints = true,
+          storage = storage_df,
+          reserve = required_reserve,
+          # energy_reserve = required_energy_reserve,
+          enriched_solution = true,
+          storage_envelopes = true,
+          μ_up = 1,
+          μ_dn = 1
+      ),
       base_ramp_storage_energy_reserve = (
           ramp_constraints = true,
           storage = storage_df,

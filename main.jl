@@ -49,11 +49,13 @@ required_reserve, required_energy_reserve, required_energy_reserve_cumulated = g
 config = (
     ramp_constraints = true,
     storage = storage_df,
-    # reserve = required_reserve,
-    energy_reserve = required_energy_reserve,
+    reserve = required_reserve,
+    # energy_reserve = required_energy_reserve,
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
-    storage_envelopes = true
+    storage_envelopes = true,
+    μ_up = 1,
+    μ_dn = 1
 )
 ed_config = (
     remove_reserve_constraints = true,
@@ -124,7 +126,8 @@ end
 function generate_ed_solutions(days, input_folder, output_folder)
     max_iterations = 100
     ed_config = Dict(:max_iterations => max_iterations)
-    configurations =  [:base_ramp_storage_reserve, :base_ramp_storage_envelopes, :base_ramp_storage_energy_reserve_cumulated]
+    # configurations =  [:base_ramp_storage_reserve, :base_ramp_storage_envelopes, :base_ramp_storage_energy_reserve_cumulated]
+    configurations =  [:base_ramp_storage_envelopes_up_0_25_dn_0_25, :base_ramp_storage_envelopes_up_0_5_dn_0_5, :base_ramp_storage_envelopes_up_0_75_dn_0_75, :base_ramp_storage_envelopes_up_1_dn_1, :base_ramp_storage_energy_reserve_cumulated]
     s_uc = Dict()
     s_ed = Dict()
     
@@ -164,9 +167,9 @@ end
 # ed_multi_demand()
 # uc_net_demand()
 # ed_multi_demand_net_demand()
-# days = [15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350]
+days = [15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350]
 # days = [289]
-# for day in days
-#     generate_ed_solutions([day], "./input/base_case", "./notebooks/output")
-#     generate_ed_solutions([day], "./input/base_case", "./notebooks/output")
-# end
+for day in days
+    generate_ed_solutions([day], "./input/base_case", "./notebooks/output2")
+    generate_ed_solutions([day], "./input/base_case", "./notebooks/output2")
+end

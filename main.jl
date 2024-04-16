@@ -184,7 +184,7 @@ function merge_ed_solutions(solution_folders, folder_path)
         name = "n_$(replace(join(solution_folders, "-"), "n_" =>""))"
         # s_uc = NamedTuple(k => vcat([s[k] for s in s_uc]...) for k in keys)
         solution_to_parquet(s_uc, "s_uc", joinpath(folder_path, name))
-        solution_to_parquet(s_ed, "s_uc", joinpath(folder_path, name))
+        solution_to_parquet(s_ed, "s_ed", joinpath(folder_path, name))
     end
     return s_uc, s_ed
 end

@@ -49,12 +49,12 @@ function test1(input_location = G_DEFAULT_LOCATION, reference_location = "./test
             G_MIP_GAP;
             v...).scalar[1, OBJECTIVE_VALUE] for (k,v) in configs
     ))
-    # @infiltrate
-    println(out == reference)
+    println(reference == out[!,propertynames(reference)])
+    return out, reference
 end
 
 function test2()
-    test1("./input/net_demand_base_case", "./test/reference_net_demand_base_case.csv")
+    return test1("./input/net_demand_base_case", "./test/reference_net_demand_base_case.csv")
 end
 
 function test3(input_location = G_DEFAULT_LOCATION)
@@ -80,10 +80,11 @@ function test3(input_location = G_DEFAULT_LOCATION)
     out[!,:delta_percentual] .= (out.UC .- out.EC)./out.UC
     out[!,:delta_percentual_loq_mip_gap] .= out.delta_percentual .<=G_MIP_GAP
     println(out)
+    return out
 end
 
 function test4()
-    test3("./input/net_demand_case")
+    return test3("./input/net_demand_case")
 end
 
 

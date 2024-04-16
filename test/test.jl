@@ -36,21 +36,26 @@ G_MIP_GAP = 0.0001
 G_RESERVE = 0.1
 
 function test1(input_location = G_DEFAULT_LOCATION, reference_location = "./test/reference.csv")
-    reference =  CSV.read(reference_location, DataFrame)
+    ref =  CSV.read(reference_location, DataFrame)
     
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, input_location)
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE, 0)
     configs = generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
 
-    out = DataFrame(Dict(string(k) => solve_unit_commitment(
+    sol = DataFrame(Dict(string(k) => solve_unit_commitment(
             gen_df,
             loads_multi_df,
             gen_variable_multi_df,
             G_MIP_GAP;
             v...).scalar[1, OBJECTIVE_VALUE] for (k,v) in configs
     ))
-    println(reference == out[!,propertynames(reference)])
-    return out, reference
+    out = vcat(sol, ref, cols = :intersect)
+    out[!,:header] = [:sol, :ref]
+    out = permutedims(out, :header)
+    out[!,:delta_percentual] .= (out.sol .- out.ref)./out.ref
+    out[!,:delta_percentual_loq_mip_gap] .= out.delta_percentual .<=G_MIP_GAP
+    println(all(out.delta_percentual_loq_mip_gap))
+    return out
 end
 
 function test2()

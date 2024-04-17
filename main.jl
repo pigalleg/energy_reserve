@@ -125,28 +125,32 @@ end
 function generate_ed_solutions_(days, input_folder, output_folder)
     max_iterations = 100
     ed_config = Dict(:max_iterations => max_iterations)
-    configurations =  [:base_ramp_storage_envelopes_up_0_dn_0, :base_ramp_storage_envelopes_up_0_25_dn_0_25, :base_ramp_storage_envelopes_up_0_5_dn_0_5, :base_ramp_storage_envelopes_up_0_75_dn_0_75, :base_ramp_storage_envelopes_up_1_dn_1, :base_ramp_storage_energy_reserve_cumulated]
+    # configurations =  [:base_ramp_storage_envelopes_up_0_dn_0, :base_ramp_storage_envelopes_up_0_25_dn_0_25, :base_ramp_storage_envelopes_up_0_5_dn_0_5, :base_ramp_storage_envelopes_up_0_75_dn_0_75, :base_ramp_storage_envelopes_up_1_dn_1, :base_ramp_storage_energy_reserve_cumulated]
+    μs = [(0,0), (0.5,0.5), (0.75,0.75), (0.8, 0.8), (0.85, 0.85), (0.9, 0.9), (0.95, 0.95), (1, 1)]
+    configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]
+    other_configs = [:base_ramp_storage_energy_reserve_cumulated]
+    configurations = vcat(configurations, other_configs)
+    
     s_uc = Dict()
     s_ed = Dict()
     
     for day in days, k in configurations
         gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
         required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
-        configs = Dict(k => merge(v, ed_config) for (k,v) in generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
-
+        config = Dict(k => merge(v, ed_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
         s_uc[(day,k)] = solve_unit_commitment(
             gen_df,
             loads_multi_df,
             gen_variable_multi_df,
             G_MIP_GAP;
-            configs[k]...
+            config[k]...
         )
         s_ed[(day,k)] = solve_economic_dispatch(
             gen_df,
             random_loads_multi_df,
             gen_variable_multi_df,
             G_MIP_GAP;
-            configs[k]...
+            config[k]...
         )
     end
     s_ed = merge_solutions(s_ed, [:day, :configuration])
@@ -161,7 +165,7 @@ function generate_ed_solutions_(days, input_folder, output_folder)
 end
 
 function generate_ed_solutions(days, input_folder, output_folder)
-    # generate_ed_solutions([15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350], "./input/base_case", "./output/solutions_v3)
+    # generate_ed_solutions([15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350], "./input/base_case", "./output/solutions_v3")
     for day in days
         generate_ed_solutions_([day], input_folder, output_folder)
         generate_ed_solutions_([day], input_folder, output_folder)

@@ -112,13 +112,12 @@ function calculate_battery_reserve(solution_storage, solution_reserve, efficienc
   return out
 end
 
+function change_type(df, from, to)
+  return mapcols(x -> eltype(x) == from ? to.(x) : x, df)
+end
 
 function solution_to_parquet(s, file_name, file_folder)
   # TODO move to post_processing
-  function change_type(df, from, to)
-    return mapcols(x -> eltype(x) == from ? to.(x) : x, df)
-  end
-  
   if !isdir(file_folder) mkdir(file_folder) end
   println("writing...")
   for (k,v) in zip(propertynames(s), s)

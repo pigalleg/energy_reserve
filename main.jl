@@ -72,7 +72,6 @@ function uc()
         config...
         )
     plot_results(solution)
-    return solution
 end
 
 function ed()
@@ -84,7 +83,6 @@ function ed()
         config...
         )
     plot_results(solution)
-    return solution
 end
 
 function ed_multi_demand()
@@ -96,7 +94,6 @@ function ed_multi_demand()
         config...
         )
     plot_results(solution)
-    return solution
 end
 
 function uc_net_demand()
@@ -110,7 +107,6 @@ function uc_net_demand()
         config...
         )
     plot_results(solution)
-    return solution
 end
 
 function ed_multi_demand_net_demand()
@@ -124,7 +120,6 @@ function ed_multi_demand_net_demand()
         config...
         )
     plot_results(solution)
-    return solution
 end
 
 function generate_ed_solutions_(days, input_folder; max_iterations = 100, configurations = nothing, output_folder = ".", write = true, reserve = G_RESERVE)

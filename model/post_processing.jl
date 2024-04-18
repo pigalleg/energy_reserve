@@ -132,7 +132,8 @@ function get_enriched_generation(solution, gen_df, gen_variable)
     aux = outerjoin(
         outerjoin(
             rename(solution.GEN, :value => :production_MW),
-            rename(curtail[!,[:r_id, :hour, :value]], :value => :curtailment_MW), 
+            rename(curtail[!,[:r_id, :hour, :value]], :value => :curtailment_MW),
+            rename(solution.COMMIT, :value => :commit),
             on = [:r_id, :hour]
         ),
         gen_df[!,FIELD_FOR_ENRICHING],
@@ -156,5 +157,3 @@ function get_enriched_demand(solution, loads)
     end
     return demand
 end 
-
-

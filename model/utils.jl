@@ -226,8 +226,8 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
   return Dict(pairs(configs))
 end
 
-function generate_envelope_configuration(key::String, μ_up, μ_dn, storage_df, required_reserve)
-  return Dict(Symbol(key) => (
+function generate_envelope_configuration(key::Symbol, μ_up, μ_dn, storage_df, required_reserve)
+  return Dict(key => (
       ramp_constraints = true,
       storage = storage_df,
       reserve = required_reserve,

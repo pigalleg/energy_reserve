@@ -72,6 +72,7 @@ function uc()
         config...
         )
     plot_results(solution)
+    return solution
 end
 
 function ed()
@@ -83,6 +84,7 @@ function ed()
         config...
         )
     plot_results(solution)
+    return solution
 end
 
 function ed_multi_demand()
@@ -94,6 +96,7 @@ function ed_multi_demand()
         config...
         )
     plot_results(solution)
+    return solution
 end
 
 function uc_net_demand()
@@ -107,6 +110,7 @@ function uc_net_demand()
         config...
         )
     plot_results(solution)
+    return solution
 end
 
 function ed_multi_demand_net_demand()
@@ -120,23 +124,23 @@ function ed_multi_demand_net_demand()
         config...
         )
     plot_results(solution)
+    return solution
 end
 
-function generate_ed_solutions_(days, input_folder, output_folder)
-    max_iterations = 100
+function generate_ed_solutions_(days, input_folder; max_iterations = 100, configurations = nothing, output_folder = ".", write = true, reserve = G_RESERVE)
     ed_config = Dict(:max_iterations => max_iterations)
-    # configurations =  [:base_ramp_storage_envelopes_up_0_dn_0, :base_ramp_storage_envelopes_up_0_25_dn_0_25, :base_ramp_storage_envelopes_up_0_5_dn_0_5, :base_ramp_storage_envelopes_up_0_75_dn_0_75, :base_ramp_storage_envelopes_up_1_dn_1, :base_ramp_storage_energy_reserve_cumulated]
-    μs = [(0,0), (0.5,0.5), (0.75,0.75), (0.8, 0.8), (0.85, 0.85), (0.9, 0.9), (0.95, 0.95), (1, 1)]
-    configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]
-    other_configs = [:base_ramp_storage_energy_reserve_cumulated]
-    configurations = vcat(configurations, other_configs)
-    
+    if isnothing(configurations)
+        μs = [(0,0), (0.25,0.25), (0.5,0.5), (0.75, 0.75), (1, 1)]
+        configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]
+        other_configs = [:base_ramp_storage_energy_reserve_cumulated]
+        configurations = vcat(configurations, other_configs)
+    end
     s_uc = Dict()
     s_ed = Dict()
     
     for day in days, k in configurations
         gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
-        required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
+        required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
         config = Dict(k => merge(v, ed_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
         s_uc[(day,k)] = solve_unit_commitment(
             gen_df,
@@ -159,16 +163,20 @@ function generate_ed_solutions_(days, input_folder, output_folder)
     s_uc = Dict(pairs(s_uc))
     s_uc[:reserve] = vcat(s_uc[:reserve], s_uc[:energy_reserve][s_uc[:energy_reserve].hour.==s_uc[:energy_reserve].hour_i,:][:,Not(:hour_i)])
     s_uc = NamedTuple(s_uc)
-    folder = joinpath(output_folder,"n_$(join(days,"-"))")
-    solution_to_parquet(s_uc, "s_uc", folder)
-    solution_to_parquet(s_ed, "s_ed", folder)
+
+    if write
+        folder = joinpath(output_folder,"n_$(join(days,"-"))")
+        solution_to_parquet(s_uc, "s_uc", folder)
+        solution_to_parquet(s_ed, "s_ed", folder)
+    end
+    return s_uc, s_ed
 end
 
-function generate_ed_solutions(days, input_folder, output_folder)
-    # generate_ed_solutions([15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350], "./input/base_case", "./output/solutions_v3")
+function generate_ed_solutions(days, input_folder; max_iterations = 100, configurations = nothing, output_folder = ".", write = true, reserve = G_RESERVE)
+    # TODO: addapt inputs
+    # generate_ed_solutions([15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350], "./input/base_case", output_folder = "./output/solutions_v3")
     for day in days
-        generate_ed_solutions_([day], input_folder, output_folder)
-        generate_ed_solutions_([day], input_folder, output_folder)
+        generate_ed_solutions_([day], input_folder,  max_iterations = max_iterations, configurations = configurations,  output_folder = output_folder, write = write, reserve = reserve)
     end
 end
 
@@ -192,3 +200,4 @@ function merge_ed_solutions(solution_folders, folder_path)
     end
     return s_uc, s_ed
 end
+uc()

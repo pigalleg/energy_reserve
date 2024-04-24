@@ -18,6 +18,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints = tru
     # ec = copy_model(uc) # TODO: how to copy model?
     ed = uc
     fix_decision_variables(ed)
+    # fix_decision_variables(ed,  [COMMIT, START, SHUT, :CH, :DIS])
 
     # update objective function with LOL term
     @variables(ed, begin LOL[T] >= 0 end)
@@ -41,14 +42,13 @@ end
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
-    # keys = [RESUP, RESDN, :ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpStorage, :ResDownStorage, :ResUpRequirement, :ResDnRequirement, :SOEUP, :SOEDN, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, ERESUP, ERESDN, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
     keys = [:ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpStorage, :ResDownStorage, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
-
     for k in keys
         if haskey(model, k)
             remove_variable_constraint(model, k)
         end
     end
+    println("...done")
 end
 
 function remove_variable_constraint(model, key, delete_ = true)
@@ -120,7 +120,7 @@ end
 
 function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...)
     # Parsing arguments...
-    remove_reserve_constraints = (get(kwargs, :remove_reserve_constraints, nothing) == true)
+    remove_reserve_constraints =get(kwargs, :remove_reserve_constraints, true)
     max_iterations = (get(kwargs, :max_iterations, NB_ITERATIONS))
     # parsing end
 

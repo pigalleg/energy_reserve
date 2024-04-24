@@ -451,6 +451,7 @@ end
 
 function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
+    # relax_integrality(uc)
     optimize!(uc)
     solution = get_solution(uc)
     if haskey(kwargs,:enriched_solution)

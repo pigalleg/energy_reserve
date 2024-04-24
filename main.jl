@@ -156,19 +156,19 @@ function generate_ed_solutions_(days, input_folder; max_iterations = 100, config
     s_uc = merge_solutions(s_uc, [:day, :configuration])
 
     s_uc = Dict(pairs(s_uc))
-    s_uc[:reserve] = vcat(s_uc[:reserve], s_uc[:energy_reserve][s_uc[:energy_reserve].hour.==s_uc[:energy_reserve].hour_i,:][:,Not(:hour_i)])
+    if haskey(s_uc, :energy_reserve) s_uc[:reserve] = vcat(s_uc[:reserve], s_uc[:energy_reserve][s_uc[:energy_reserve].hour.==s_uc[:energy_reserve].hour_i,:][:,Not(:hour_i)]) end
     s_uc = NamedTuple(s_uc)
 
     if write
-        folder = joinpath(output_folder,"n_$(join(days,"-"))")
-        solution_to_parquet(s_uc, "s_uc", folder)
-        solution_to_parquet(s_ed, "s_ed", folder)
+        if !isdir(output_folder) mkdir(output_folder) end
+        folder_path = joinpath(output_folder,"n_$(join(days,"-"))")
+        solution_to_parquet(s_uc, "s_uc", folder_path)
+        solution_to_parquet(s_ed, "s_ed", folder_path)
     end
     return s_uc, s_ed
 end
 
 function generate_ed_solutions(days, input_folder; max_iterations = 100, configurations = nothing, output_folder = ".", write = true, reserve = G_RESERVE)
-    # TODO: addapt inputs
     # generate_ed_solutions([15, 45, 75, 106, 136, 167, 197, 228, 259, 289, 320, 350], "./input/base_case", output_folder = "./output/solutions_v3")
     for day in days
         generate_ed_solutions_([day], input_folder,  max_iterations = max_iterations, configurations = configurations,  output_folder = output_folder, write = write, reserve = reserve)
@@ -189,10 +189,8 @@ function merge_ed_solutions(solution_folders, folder_path)
     # @infiltrate
     if write
         name = "n_$(replace(join(solution_folders, "-"), "n_" =>""))"
-        # s_uc = NamedTuple(k => vcat([s[k] for s in s_uc]...) for k in keys)
         solution_to_parquet(s_uc, "s_uc", joinpath(folder_path, name))
         solution_to_parquet(s_ed, "s_ed", joinpath(folder_path, name))
     end
     return s_uc, s_ed
 end
-uc()

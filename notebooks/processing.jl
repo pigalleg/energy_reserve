@@ -156,20 +156,24 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   s_ed_scalar.Δobjective_value_relative = (s_ed_scalar.objective_value .- s_ed_scalar.objective_value_uc)./s_ed_scalar.objective_value_uc
 
   # relative difference with respect to ref_configuration = :base_ramp_storage_envelopes_up_0_dn_0
-  ref_configuration = :base_ramp_storage_envelopes_up_0_dn_0
-  ref_configuration = s_ed.scalar[s_ed.scalar.configuration .== ref_configuration, [:objective_value, :iteration, :day]]
-
-  leftjoin!(s_ed_scalar, 
-      rename(ref_configuration, :objective_value => :objective_value_ref_conf), 
-      on = [:day, :iteration])
-
-  s_ed_scalar.Δobjective_value_ref_conf = s_ed_scalar.objective_value .- s_ed_scalar.objective_value_ref_conf
-  s_ed_scalar.Δobjective_value_relative_ref_conf = (s_ed_scalar.objective_value .- s_ed_scalar.objective_value_ref_conf)./s_ed_scalar.objective_value_ref_conf
+  s_ed_scalar = include_Δobjective_value(s_ed_scalar)
 
   leftjoin!(gcdi_KPI, s_ed_scalar, on = group_by_big)
   transform!(gcdi_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcdi_KPI, :mu)
   return gcdi_KPI
+end
+
+function include_Δobjective_value(s_scalar, keys = [:day, :iteration], reference_configuration_key = :base_ramp_storage_envelopes_up_0_dn_0)
+  ref_configuration = s_scalar[s_scalar.configuration .== reference_configuration_key, union([:objective_value], keys)]
+
+  s_scalar = leftjoin(s_scalar, 
+      rename(ref_configuration, :objective_value => :objective_value_ref_conf), 
+      on = keys)
+
+  s_scalar.Δobjective_value_ref_conf = s_scalar.objective_value .- s_scalar.objective_value_ref_conf
+  s_scalar.Δobjective_value_relative_ref_conf = (s_scalar.objective_value .- s_scalar.objective_value_ref_conf)./s_scalar.objective_value_ref_conf
+  return s_scalar
 end
 
 function calculate_adecuacy_gcd_KPI(gcdi_KPI)

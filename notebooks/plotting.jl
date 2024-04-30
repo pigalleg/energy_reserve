@@ -12,6 +12,11 @@ color_map=Dict(
     "natural_gas_fired_combustion_turbine" => "black",
     "total" => "purple",
     "required" => "#F0092",
+    "envelope_down_MWh" => "blue",
+    "envelope_up_MWh" => "red",
+    "reserve_down_MW_eff" => "green",
+    "reserve_up_MW_eff" => "green",
+    "SOE_MWh" => "rgba(203, 213, 232, 1)",
 )
 
 color_discrete_map = (key) -> if haskey(color_map, key) color_map[key] else "red" end
@@ -68,14 +73,14 @@ function plot_battery_reserve_(battery_reserve, key)
   reserves = [scatter(
       x= battery_reserve.hour, y=battery_reserve[!,key],
       stackgroup=1, mode="lines", name = key,
-      line=attr(width=1, shape = "line"), line_shape="vh"
+      line=attr(width=1, shape = "line", color=color_discrete_map(string(key))), line_shape="vh"
   ) for key in [:SOE_MWh, key]]
 
   if :envelope_up_MWh in propertynames(battery_reserve)
       envelope = [scatter(
           x= battery_reserve.hour, y=battery_reserve[!,key],
           mode="lines", name = key,
-          line=attr(width=1, shape = "line"), line_shape="vh"
+          line=attr(width=1, shape = "line", color=color_discrete_map(string(key))), line_shape="vh"
           ) for key in [:envelope_up_MWh, :envelope_down_MWh]]
       union!(reserves, envelope)
   end

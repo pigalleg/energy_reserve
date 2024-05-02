@@ -9,25 +9,6 @@ using CSV
 OBJECTIVE_VALUE = :objective_value
 SCALAR = :scalar
 
-
-# gen_info, fuels, loads, gen_variable_info, storage_info = read_data("./input/net_demand_case")
-# # gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
-# gen_df = pre_process_generators_data(gen_info, fuels)
-# loads, gen_variable, gen_df = pre_process_load_gen_variable(loads, gen_df, gen_variable_info)
-# storage_df = pre_process_storage_data(storage_info)
-# random_loads_df = read_random_demand()
-
-# # A spring day
-
-# T_period = (n*24+1):((n+1)*24)
-
-# # Filtering data with timeseries according to T_period
-# gen_variable_multi = gen_variable[in.(gen_variable.hour,Ref(T_period)),:]
-# loads_multi = loads[in.(loads.hour,Ref(T_period)),:]
-# random_loads_multi =  random_loads_df[in.(random_loads_df.hour,Ref(T_period)),:]
-# # required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_[in.(loads_.hour,Ref(T_period)),:], 0.05, 0)
-
-
 G_N=100
 ed_config = (
     remove_reserve_constraints = false,
@@ -92,4 +73,42 @@ function test4()
     return test3("./input/net_demand_case")
 end
 
+function test5(constrain_dispatch = false, reference_location = "./test/test5_reference.csv")
+    ref = change_type(change_type(CSV.read(reference_location, DataFrame), String, Symbol), String15, Symbol)
+    days = [259]
+    mip_gap = 0.000000001
+    ed_config = Dict(:max_iterations => 10, :constrain_dispatch => constrain_dispatch, :remove_reserve_constraints => true)
 
+    μs = [(0,0), (0.1,0.1), (0.2,0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5), (0.6, 0.6), (0.7, 0.7), (0.75, 0.75), (0.8, 0.8), (0.85, 0.85), (0.9, 0.9), (0.95, 0.95), (1, 1)]
+    configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]
+    other_configs = [:base_ramp_storage_energy_reserve_cumulated]
+    configurations = vcat(configurations, other_configs)
+
+    s_ed = Dict()
+    
+    for day in days, k in configurations
+        gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, G_DEFAULT_LOCATION)
+        required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
+        config = Dict(k => merge(v, ed_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
+        s_ed[(day,k)] = solve_economic_dispatch(
+            gen_df,
+            random_loads_multi_df,
+            gen_variable_multi_df,
+            mip_gap;
+            config[k]...
+        )
+    end
+    s_ed = merge_solutions(s_ed, [:day, :configuration])
+    out = leftjoin(
+        s_ed.scalar[:,Not(:termination_status)], 
+        rename(ref[:,Not(:termination_status)], :objective_value => :objective_value_ref),
+        on = [:configuration, :day, :iteration])
+    out[!,:delta_percentual] .= (out.objective_value .- out.objective_value_ref)./out.objective_value_ref
+    out[!,:delta_percentual_loq_mip_gap] .= out.delta_percentual .<=G_MIP_GAP
+    println(all(out.delta_percentual_loq_mip_gap))
+    return out
+end
+
+function test6()
+    return  test5(true, "./test/test6_reference.csv")
+end

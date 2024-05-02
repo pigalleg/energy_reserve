@@ -81,7 +81,7 @@ function calculate_supply_demand(solution, group_by = [:hour, :resource] )
   return order_df(supply), order_df(demand)
 end
 
-function calculate_reserve(reserve, required_reserve, group_by_ = [:hour, :resource])
+function calculate_reserve(reserve, required_reserve = nothing, group_by_ = [:hour, :resource])
   field_up_dn = [:reserve_up_MW,:reserve_down_MW]
   aux = reserve[!,union(group_by_, field_up_dn)]
   replace!([aux.reserve_up_MW, missing => 0, aux.reserve_up_MW, missing => 0])
@@ -89,9 +89,11 @@ function calculate_reserve(reserve, required_reserve, group_by_ = [:hour, :resou
   group_by = intersect(propertynames(aux), group_by_)
   reserve = combine(groupby(aux, group_by), [field_up_dn[1] => sum, field_up_dn[2] => sum], renamecols=false)
    # TODO: Adapt the following lines to consider the cases where group_by has more keys (e.g. :iteration, :coniguration)
-  aux = required_reserve
-  aux.resource.= "required"
-  append!(reserve, aux)
+  if !isnothing(required_reserve) 
+    aux = copy(required_reserve)
+    aux.resource.= "required"
+    append!(reserve, aux)
+  end
   return order_df(reserve)
 end
 

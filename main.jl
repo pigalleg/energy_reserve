@@ -42,7 +42,8 @@ G_N = 100 # 68
 G_RESERVE = 0.1
 G_MIP_GAP = 0.00000001
 G_REMOVE_RESERVE_CONSTRAINTS = true
-G_CONSTRAIN_DISPATCH = false
+G_CONSTRAIN_DISPATCH = true
+G_MAX_ITERATIONS = 10
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
 required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
@@ -60,7 +61,7 @@ config = (
 )
 ed_config = (
     remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
-    max_iterations = 10,
+    max_iterations = G_MAX_ITERATIONS,
     constrain_dispatch = G_CONSTRAIN_DISPATCH
 )
 config = merge(config, ed_config)

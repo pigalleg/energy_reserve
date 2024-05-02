@@ -4,20 +4,23 @@ using DataFrames
 include("./unit_commitment.jl")
 include("./post_processing.jl")
 
-COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour 
+COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, GEN, CH, DIS, ResUpRequirement, ResDnRequirement = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :GEN, :CH, :DIS, :ResUpRequirement, :ResDnRequirement 
 ITERATION = :iteration
 DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, remove_reserve_constraints = true, VLOL = 10^6)
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, VLOL = 10^6)
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
     T, __ = create_time_sets(loads)
-    # ec = copy_model(uc) # TODO: how to copy model?
+    # ed = JuMP.copy(uc)
+    # set_optimizer(ed, Gurobi.Optimizer)
+    # optimize!(ed)
     ed = uc
-    fix_decision_variables(ed)
+    constrain_decision_variables(ed, constrain_dispatch)
+    # fix_decision_variables(ed)
     # fix_decision_variables(ed,  [COMMIT, START, SHUT, :CH, :DIS])
 
     # update objective function with LOL term
@@ -36,8 +39,88 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints = tru
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
     end
+    println("...done")
     return ed
 end
+
+function constrain_decision_variables(model,  constrain_dispatch, variables_to_fix =  [COMMIT, START, SHUT], variables_to_constrain = [GEN])
+    function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
+        # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
+        T = axes(res_up_var_value)[2]
+        RESUP_lower_bounds = [constraint_object(model[ResUpRequirement][t]).set.lower for t in T]
+        RESDN_lower_bounds = [constraint_object(model[ResDnRequirement][t]).set.lower for t in T]
+        res_up_var_value_normalized  = res_up_var_value./sum(Array(res_up_var_value), dims = 1).*transpose(RESUP_lower_bounds)
+        res_dn_var_value_normalized  = res_dn_var_value./sum(Array(res_dn_var_value), dims = 1).*transpose(RESDN_lower_bounds)
+        return res_up_var_value_normalized, res_dn_var_value_normalized
+    end
+    variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
+    if constrain_dispatch & haskey(model,RESUP)
+
+        variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
+        res_up_var, res_up_var_value = (model[RESUP], value.(model[RESUP]))
+        res_dn_var, res_dn_var_value = (model[RESDN], value.(model[RESDN]))
+        res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
+        constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+    end 
+    fix_decision_variables(model, variables_to_fix)
+end
+
+
+
+function constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+    # Dispatch constrained based on the procured reserve at UC stage
+    # Function fixes up to three variable types: :GEN, :CH and :DIS
+    function get_variable_base_name(variable)
+        return Symbol(match(r"([A-z]+)\[", name(first(variable)))[1])
+    end
+
+    function constraint_production_variables(var, var_value, res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+        G = intersect(axes(res_up_var)[1], axes(var)[1])
+        T = intersect(axes(res_up_var)[2], axes(var)[2])
+        model[Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")] = @constraint(model, [s in G, t in T], 
+            var[s,t] <= var_value[s,t] + res_up_var_value[s,t]
+        )
+        G = intersect(axes(res_dn_var)[1], axes(var)[1])
+        T = intersect(axes(res_dn_var)[2], axes(var)[2])
+        model[Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_dn_var)))")] = @constraint(model, [s in G, t in T], 
+            -var[s,t] <= -var_value[s,t] + res_dn_var_value[s,t]
+        )
+    end
+
+    println("Constraining dispatch to procured reserve...")
+    # res_up_var, res_up_var_value = res_up_variables
+    # res_dn_var, res_dn_var_value = res_dn_variables
+    for (var, var_value) in variables_to_constrain
+        base_name = name(first(var))
+        base_name = Symbol(match(r"([A-z]+)\[", base_name)[1])
+        if get_variable_base_name(var) in [GEN, DIS]
+            constraint_production_variables(var, var_value, res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+        elseif get_variable_base_name(var) in [CH]
+            # Inversing arugement allows to constraint consumption variables
+            constraint_production_variables(var, var_value, res_dn_var, res_dn_var_value, res_up_var, res_up_var_value)
+        end
+    end
+end
+
+function fix_decision_variables(model, variables)
+    println("Fixing decision variables ...")
+    for (var, var_value) in variables
+    # for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
+        for key in collect(keys(var))
+           fix(var[key], var_value[key]; force = !is_binary(var[key]))
+        end
+    end
+end
+
+# function fix_decision_variables(model, decision_variables::Array = [COMMIT, START, SHUT])
+#     println("Fixing decision variables = $decision_variables ...")
+#     @infiltrate
+#     for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
+#         for key in collect(keys(var))
+#            fix(var[key], var_value[key]; force = !is_binary(var[key]))
+#         end
+#     end
+# end
 
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
@@ -48,7 +131,6 @@ function remove_energy_and_reserve_constraints(model)
             remove_variable_constraint(model, k)
         end
     end
-    println("...done")
 end
 
 function remove_variable_constraint(model, key, delete_ = true)
@@ -83,14 +165,7 @@ function update_generation(model, gen_variable)
     )
 end
 
-function fix_decision_variables(model, decision_variables::Array = [COMMIT, START, SHUT])
-    println("Fixing decision variables...")
-    for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
-        for key in collect(keys(var))
-           fix(var[key], var_value[key]; force = !is_binary(var[key]))
-        end
-    end
-end
+
 
 function merge_solutions(solutions::Dict, merge_keys = [ITERATION])
     #TODO can be done more elegantly
@@ -122,11 +197,12 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
     # Parsing arguments...
     remove_reserve_constraints =get(kwargs, :remove_reserve_constraints, true)
     max_iterations = (get(kwargs, :max_iterations, NB_ITERATIONS))
+    constrain_dispatch = get(kwargs, :constrain_dispatch, false)
     # parsing end
 
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable, mip_gap; kwargs...)
     optimize!(uc)
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch)
 
     solutions = Dict()
     # for k in collect(propertynames(loads[!, Not(HOUR)]))

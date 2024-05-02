@@ -40,7 +40,9 @@ end
 
 G_N = 100 # 68
 G_RESERVE = 0.1
-G_MIP_GAP = 0.0001
+G_MIP_GAP = 0.00000001
+G_REMOVE_RESERVE_CONSTRAINTS = true
+G_CONSTRAIN_DISPATCH = false
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
 required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
@@ -57,8 +59,9 @@ config = (
     μ_dn = 1
 )
 ed_config = (
-    remove_reserve_constraints = true,
+    remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
     max_iterations = 10,
+    constrain_dispatch = G_CONSTRAIN_DISPATCH
 )
 config = merge(config, ed_config)
 
@@ -123,7 +126,7 @@ function ed_multi_demand_net_demand()
 end
 
 function generate_ed_solutions_(days, input_folder; max_iterations = 100, configurations = nothing, output_folder = ".", write = true, reserve = G_RESERVE)
-    ed_config = Dict(:max_iterations => max_iterations)
+    ed_config = Dict(:max_iterations => max_iterations, :constrain_dispatch => G_CONSTRAIN_DISPATCH, :remove_reserve_constraints => G_REMOVE_RESERVE_CONSTRAINTS)
     if isnothing(configurations)
         μs = [(0,0), (0.25,0.25), (0.5,0.5), (0.75, 0.75), (1, 1)]
         configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]

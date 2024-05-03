@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.1"
+julia_version = "1.10.3"
 manifest_format = "2.0"
-project_hash = "8de43e29034c3965dd8a3a1048ee8ee8fc9f062b"
+project_hash = "e25d5630392e20a1fab7efd12aad8bf49bd4cc26"
 
 [[deps.AbstractTrees]]
 git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
@@ -215,7 +215,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -1028,12 +1028,6 @@ deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
 version = "7.2.1+1"
 
-[[deps.Suppressor]]
-deps = ["Logging"]
-git-tree-sha1 = "9143c41bd539a8885c79728b9dedb0ce47dc9819"
-uuid = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
-version = "0.2.7"
-
 [[deps.TOML]]
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
@@ -1128,12 +1122,6 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 git-tree-sha1 = "e7f1c67ba99ac6df440de191fa4d5cbfcbdddcd1"
 uuid = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 version = "1.0.5"
-
-[[deps.UpdateJulia]]
-deps = ["JSON", "Suppressor"]
-git-tree-sha1 = "ca2f4bae4aa6a99f81aac1075f949a6a4d392443"
-uuid = "770da0de-323d-4d28-9202-0e205c1e0aff"
-version = "0.4.4"
 
 [[deps.VersionParsing]]
 git-tree-sha1 = "58d6e80b4ee071f5efd07fda82cb9fbe17200868"

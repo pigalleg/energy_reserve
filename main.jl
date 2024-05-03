@@ -44,6 +44,7 @@ G_MIP_GAP = 0.00000001
 G_REMOVE_RESERVE_CONSTRAINTS = true
 G_CONSTRAIN_DISPATCH = true
 G_MAX_ITERATIONS = 10
+G_PLOTTING = false
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
 required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
@@ -75,7 +76,8 @@ function uc()
         G_MIP_GAP;
         config...
         )
-    plot_results(solution)
+    if G_PLOTTING plot_results(solution) end
+    return solution
 end
 
 function ed()
@@ -86,7 +88,8 @@ function ed()
         G_MIP_GAP;
         config...
         )
-    plot_results(solution)
+    if G_PLOTTING plot_results(solution) end
+    return solution
 end
 
 function ed_multi_demand()
@@ -97,7 +100,8 @@ function ed_multi_demand()
         G_MIP_GAP;
         config...
         )
-    plot_results(solution)
+    if G_PLOTTING plot_results(solution) end
+    return solution
 end
 
 function uc_net_demand()
@@ -110,7 +114,8 @@ function uc_net_demand()
         G_MIP_GAP;
         config...
         )
-    plot_results(solution)
+    if G_PLOTTING plot_results(solution) end
+    return solution
 end
 
 function ed_multi_demand_net_demand()
@@ -123,7 +128,8 @@ function ed_multi_demand_net_demand()
         G_MIP_GAP;
         config...
         )
-    plot_results(solution)
+    if G_PLOTTING plot_results(solution) end
+    return solution
 end
 
 function generate_ed_solutions_(days, input_folder; max_iterations = 100, configurations = nothing, output_folder = ".", write = true, reserve = G_RESERVE)

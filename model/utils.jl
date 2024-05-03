@@ -243,9 +243,9 @@ function generate_configuration(key::Symbol, storage_df, required_reserve, requi
   if envelope_config_key != nothing
     μ_up = parse(Float64, replace(envelope_config_key[1], "_" => "."))
     μ_dn = parse(Float64, replace(envelope_config_key[2], "_" => "."))
-    return generate_envelope_configuration(key, μ_up, μ_dn, storage_df, required_reserve)
+    return generate_envelope_configuration(key, μ_up, μ_dn, storage_df, required_reserve) #TODO change to output just input key
   else
-    return generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
+    return generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated) #TODO change to output just input key
   end
 end
 

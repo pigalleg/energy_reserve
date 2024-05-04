@@ -20,12 +20,12 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     # optimize!(ed)
     ed = uc
     constrain_decision_variables(ed, constrain_dispatch)
-    # fix_decision_variables(ed)
-    # fix_decision_variables(ed,  [COMMIT, START, SHUT, :CH, :DIS])
 
     # update objective function with LOL term
-    @variables(ed, begin LOL[T] >= 0 end)
-    @variables(ed, begin LGEN[T] >= 0 end)
+    @variables(ed, begin 
+        LOL[T] >= 0
+        LGEN[T] >= 0
+        end)
     @objective(ed, Min, 
         objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
     )
@@ -44,7 +44,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     return ed
 end
 
-function constrain_decision_variables(model,  constrain_dispatch, variables_to_fix =  [COMMIT, START, SHUT], variables_to_constrain = [GEN, DIS, CH])
+function constrain_decision_variables(model,  constrain_dispatch, variables_to_constrain = [GEN], variables_to_fix =  [COMMIT, START, SHUT], )
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]

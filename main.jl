@@ -46,9 +46,8 @@ G_CONSTRAIN_DISPATCH = true
 G_MAX_ITERATIONS = 10
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
-random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_21]]
-random_loads_multi_df.demand_21 .= random_loads_multi_df.demand_21*0.5
-# println(names(random_loads_multi_df))
+# random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_21]]
+# random_loads_multi_df.demand_21 .= random_loads_multi_df.demand_21*0.5
 required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
 
 config = (

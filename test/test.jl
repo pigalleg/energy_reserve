@@ -104,7 +104,7 @@ function test5(constrain_dispatch = false, reference_location = "./test/test5_re
         rename(ref[:,Not(:termination_status)], :objective_value => :objective_value_ref),
         on = [:configuration, :day, :iteration])
     out[!,:delta_percentual] .= (out.objective_value .- out.objective_value_ref)./out.objective_value_ref
-    out[!,:delta_percentual_loq_mip_gap] .= out.delta_percentual .<=G_MIP_GAP
+    out[!,:delta_percentual_loq_mip_gap] .= out.delta_percentual .<=mip_gap
     println(all(out.delta_percentual_loq_mip_gap))
     return out
 end

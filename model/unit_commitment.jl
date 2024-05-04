@@ -55,7 +55,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
         COMMIT[G_thermal, T], Bin # commitment status (Bin=binary)
         START[G_thermal, T], Bin  # startup decision
         SHUT[G_thermal, T], Bin   # shutdown decision
-  end)
+    end)
               
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods

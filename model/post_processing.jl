@@ -57,7 +57,7 @@ function get_solution(model)
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN, :LOL]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
@@ -154,6 +154,17 @@ function get_enriched_demand(solution, loads)
             demand, 
             rename(solution[:LOL], :value => :LOL_MW),
             on = [:hour])
+    end
+    if haskey(solution, :LGEN)
+        LGEN = copy(solution.LGEN)
+        # LGEN.r_id .= missing
+        LGEN.resource .= "total"
+        demand = outerjoin(
+            demand,
+            rename(LGEN[!,[:resource, :hour, :value]], :value => :LGEN_MW),
+            on = [:hour, :resource]
+        )
+        replace!(demand.LGEN_MW, missing => 0)
     end
     return demand
 end 

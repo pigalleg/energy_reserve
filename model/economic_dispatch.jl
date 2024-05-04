@@ -10,7 +10,7 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, VLOL = 10^6)
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, VLOL = 10^6, VLGEN = 10^6)
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -25,14 +25,15 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
 
     # update objective function with LOL term
     @variables(ed, begin LOL[T] >= 0 end)
+    @variables(ed, begin LGEN[T] >= 0 end)
     @objective(ed, Min, 
-        objective_function(ed) + VLOL*sum(LOL[t] for t in T)
+        objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
     )
 
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
     @expression(ed, SupplyDemand[t in T],
-        SupplyDemand[t] + LOL[t]
+        SupplyDemand[t] + LOL[t] - LGEN[t]
     )
 
     # By default, (energy) reserve constraints are removed 
@@ -43,7 +44,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     return ed
 end
 
-function constrain_decision_variables(model,  constrain_dispatch, variables_to_fix =  [COMMIT, START, SHUT], variables_to_constrain = [GEN])
+function constrain_decision_variables(model,  constrain_dispatch, variables_to_fix =  [COMMIT, START, SHUT], variables_to_constrain = [GEN, DIS, CH])
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]

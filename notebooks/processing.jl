@@ -2,12 +2,14 @@ using DataFrames
 using Parquet2
 using MathOptInterface: TerminationStatusCode
 order = [
-  "battery",
   "solar_photovoltaic_curtailment",
   "onshore_wind_turbine_curtailment",
   "small_hydroelectric_curtailment",
-  "total_loss_of_load",
+  "loss_of_generation",
+  "total_loss_of_load_ED",
+  "total_loss_of_generation_ED",
   "net_generation_curtailment",
+  "battery",
   "solar_photovoltaic",
   "net_generation",
   "natural_gas_fired_combustion_turbine",
@@ -61,7 +63,14 @@ function calculate_supply_demand(solution, group_by = [:hour, :resource] )
     aux = combine(groupby(solution.demand, group_by), :LOL_MW => sum, renamecols=false)
     aux = aux[aux.LOL_MW.>0,:]
     rename!(aux, :LOL_MW => :demand_MW)
-    transform!(aux, :resource .=> ByRow(x -> x*"_loss_of_load") => :resource)
+    transform!(aux, :resource .=> ByRow(x -> x*"_loss_of_load_ED") => :resource)
+    append!(demand, aux, promote = true)
+  end
+  if :LGEN_MW in propertynames(solution.demand)
+    aux = combine(groupby(solution.demand, group_by), :LGEN_MW => sum, renamecols=false)
+    aux = aux[aux.LGEN_MW.>0,:]
+    rename!(aux, :LGEN_MW => :demand_MW)
+    transform!(aux, :resource .=> ByRow(x -> x*"_loss_of_generation_ED") => :resource)
     append!(demand, aux, promote = true)
   end
   supply = combine(groupby(solution.generation, group_by), :production_MW => sum, renamecols=false)
@@ -71,6 +80,8 @@ function calculate_supply_demand(solution, group_by = [:hour, :resource] )
   rename!(aux, :curtailment_MW => :production_MW)
   transform!(aux, :resource .=> ByRow(x -> x*"_curtailment") => :resource)
   append!(supply, aux, promote = true)
+
+  
 
   if haskey(solution,:storage)
       aux = combine(groupby(solution.storage, group_by), [:discharge_MW => sum, :charge_MW => sum], renamecols=false)
@@ -144,6 +155,7 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   gcdi_KPI = outerjoin(
     combine(groupby(s_ed.demand, group_by_big), [:LOL_MW, :demand_MW] => ((x,y)->f_LOL(x,y)) => AsTable), 
     combine(groupby(s_ed.generation[filter,:], group_by_big), [:curtailment_MW, :production_MW] =>((x,y) -> f_CUR(x,y))=> AsTable),
+    combine(groupby(s_ed.demand, group_by_big), :LGEN_MW => sum => :LGEN_MWh),
     on = group_by_big)
   
   # folowing leftjoin will repeat values right values for "iteration"
@@ -183,7 +195,7 @@ function calculate_adecuacy_gcd_KPI(gcdi_KPI)
   gcd_KPI = outerjoin(
     combine(groupby(gcdi_KPI, group_by), [:LLD_h, :ENS_MWh] => ((x,y)->(LOLE = mean(x), EENS = mean(y))) => AsTable),  #TODO: change format
     combine(groupby(gcdi_KPI, group_by), [:CURD_h, :CUR_MWh] => ((x,y)->(CURE = mean(x), ECUR = mean(y))) => AsTable), #TODO: change format
-    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf] .=> mean .=> [:EOV, :EΔOV]),
+    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf, :LGEN_MWh] .=> mean .=> [:EOV, :EΔOV, :ELGEN]),
     on=[:configuration, :day])
   transform!(gcd_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcd_KPI, :mu)

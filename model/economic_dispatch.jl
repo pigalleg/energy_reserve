@@ -19,7 +19,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     # set_optimizer(ed, Gurobi.Optimizer)
     # optimize!(ed)
     ed = uc
-    constrain_decision_variables(ed, constrain_dispatch)
+    constrain_decision_variables(ed, constrain_dispatch, [GEN, CH, DIS])
 
     # update objective function with LOL term
     @variables(ed, begin 
@@ -44,7 +44,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     return ed
 end
 
-function constrain_decision_variables(model,  constrain_dispatch, variables_to_constrain = [GEN], variables_to_fix =  [COMMIT, START, SHUT], )
+function constrain_decision_variables(model,  constrain_dispatch, variables_to_constrain = [GEN], variables_to_fix =  [COMMIT, START, SHUT] )
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -104,7 +104,7 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
 end
 
 function fix_decision_variables(model, variables)
-    println("Fixing decision variables ...")
+    println("Fixing decision variables...")
     for (var, var_value) in variables
     # for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
         for key in collect(keys(var))
@@ -112,16 +112,6 @@ function fix_decision_variables(model, variables)
         end
     end
 end
-
-# function fix_decision_variables(model, decision_variables::Array = [COMMIT, START, SHUT])
-#     println("Fixing decision variables = $decision_variables ...")
-#     @infiltrate
-#     for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
-#         for key in collect(keys(var))
-#            fix(var[key], var_value[key]; force = !is_binary(var[key]))
-#         end
-#     end
-# end
 
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
@@ -215,16 +205,3 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
     end
     return merge_solutions(solutions)
 end
-
-# function solve_economic_dispatch_multiple_demand(multiple_loads, gen_df, loads, gen_variable, mip_gap; kwargs...)
-#     uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
-#     optimize!(uc)
-#     remove_reserve_constraints = false
-#     if haskey(kwargs, :remove_reserve_constraints)
-#         remove_reserve_constraints = kwargs[:remove_reserve_constraints] == true
-#     end
-#     ed  = construct_economic_dispatch(uc, loads, remove_reserve_constraints)
-#     @infiltrate
-#     update_demand(ed, loads)
-#     return solve_economic_dispatch(ed, gen_df, loads, gen_variable; kwargs...)
-# end

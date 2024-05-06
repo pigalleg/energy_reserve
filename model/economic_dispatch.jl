@@ -61,7 +61,7 @@ function constrain_decision_variables(model, constrain_dispatch, variables_to_co
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
         res_up_var, res_up_var_value = (model[RESUP], value.(model[RESUP]))
         res_dn_var, res_dn_var_value = (model[RESDN], value.(model[RESDN]))
-        res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
+        # res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
     end 
     fix_decision_variables(model, variables_to_fix)
@@ -102,6 +102,7 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
             constraint_production_variables(var, var_value, res_dn_var, res_dn_var_value, res_up_var, res_up_var_value)
         end
     end
+    println("...done")
 end
 
 function fix_decision_variables(model, variables)
@@ -112,6 +113,7 @@ function fix_decision_variables(model, variables)
            fix(var[key], var_value[key]; force = !is_binary(var[key]))
         end
     end
+    println("...done")
 end
 
 function remove_energy_and_reserve_constraints(model)
@@ -127,7 +129,11 @@ end
 
 function remove_variable_constraint(model, key, delete_ = true)
     # Applies for constraints and variables
-    println(key)
+    println("Removing $key...")
+    if !haskey(model, key)
+        println("variable not in model")
+        return
+    end
     if delete_ delete.(model, model[key]) end # Constraints must be deleted also
     unregister(model, key)
 end

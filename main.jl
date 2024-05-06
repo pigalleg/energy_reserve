@@ -49,9 +49,10 @@ G_MIP_GAP = 10^(-8)
 G_REMOVE_RESERVE_CONSTRAINTS = true
 G_CONSTRAIN_DISPATCH = true
 G_MAX_ITERATIONS = 10
+G_V_RESERVE = 10^(-8)
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
-# random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_21]]
+random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_51]]
 # random_loads_multi_df.demand_21 .= random_loads_multi_df.demand_21*0.5
 required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
 
@@ -63,8 +64,9 @@ config = (
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
     storage_envelopes = true,
-    μ_up = 1,
-    μ_dn = 1,
+    μ_up = .5,
+    μ_dn = .5,
+    VRESERVE = G_V_RESERVE
 )
 ed_config = (
     remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
@@ -147,6 +149,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     reserve = get(kwargs, :reserve, G_RESERVE)
     constrain_dispatch = get(kwargs, :constrain_dispatch, G_CONSTRAIN_DISPATCH)
     remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, G_REMOVE_RESERVE_CONSTRAINTS)
+    VRESERVE = get(kwargs, :VRESERVE, G_V_RESERVE)
 
     ed_config = Dict(:max_iterations => max_iterations, :constrain_dispatch => constrain_dispatch, :remove_reserve_constraints => remove_reserve_constraints)
     configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])

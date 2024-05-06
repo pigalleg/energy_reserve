@@ -10,7 +10,7 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, VLOL = 10^6, VLGEN = 10^6)
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, variables_to_constrain, VLOL = 10^6, VLGEN = 10^6)
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -19,7 +19,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     # set_optimizer(ed, Gurobi.Optimizer)
     # optimize!(ed)
     ed = uc
-    constrain_decision_variables(ed, constrain_dispatch, [GEN, CH, DIS])
+    constrain_decision_variables(ed, constrain_dispatch, variables_to_constrain)
 
     # update objective function with LOL term
     @variables(ed, begin 
@@ -35,7 +35,8 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     @expression(ed, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t] - LGEN[t]
     )
-
+    #
+    remove_variable_constraint(ed, :SOEFinal)
     # By default, (energy) reserve constraints are removed 
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
@@ -44,7 +45,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     return ed
 end
 
-function constrain_decision_variables(model,  constrain_dispatch, variables_to_constrain = [GEN], variables_to_fix =  [COMMIT, START, SHUT] )
+function constrain_decision_variables(model, constrain_dispatch, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT] )
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -189,11 +190,12 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
     remove_reserve_constraints =get(kwargs, :remove_reserve_constraints, true)
     max_iterations = (get(kwargs, :max_iterations, NB_ITERATIONS))
     constrain_dispatch = get(kwargs, :constrain_dispatch, false)
+    variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
     # parsing end
 
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable, mip_gap; kwargs...)
     optimize!(uc)
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain)
 
     solutions = Dict()
     # for k in collect(propertynames(loads[!, Not(HOUR)]))

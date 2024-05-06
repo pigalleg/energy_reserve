@@ -73,11 +73,11 @@ function test4()
     return test3("./input/net_demand_case")
 end
 
-function test5(constrain_dispatch = false, reference_location = "./test/test5_reference.csv")
+function test5(constrain_dispatch = false, reference_location = "./test/test5_reference.csv", variables_to_constrain = [:GEN])
     ref = change_type(change_type(CSV.read(reference_location, DataFrame), String, Symbol), String15, Symbol)
     days = [259]
     mip_gap = 0.000000001
-    ed_config = Dict(:max_iterations => 10, :constrain_dispatch => constrain_dispatch, :remove_reserve_constraints => true)
+    ed_config = Dict(:max_iterations => 10, :constrain_dispatch => constrain_dispatch, :remove_reserve_constraints => true, :variables_to_constrain => variables_to_constrain)
 
     μs = [(0,0), (0.1,0.1), (0.2,0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5), (0.6, 0.6), (0.7, 0.7), (0.75, 0.75), (0.8, 0.8), (0.85, 0.85), (0.9, 0.9), (0.95, 0.95), (1, 1)]
     configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]
@@ -99,6 +99,7 @@ function test5(constrain_dispatch = false, reference_location = "./test/test5_re
         )
     end
     s_ed = merge_solutions(s_ed, [:day, :configuration])
+    # CSV.write("test7_reference.csv", s_ed.scalar)
     out = leftjoin(
         s_ed.scalar[:,Not(:termination_status)], 
         rename(ref[:,Not(:termination_status)], :objective_value => :objective_value_ref),
@@ -110,5 +111,9 @@ function test5(constrain_dispatch = false, reference_location = "./test/test5_re
 end
 
 function test6()
-    return  test5(true, "./test/test6_reference.csv")
+    return test5(true, "./test/test6_reference.csv", [:GEN])
+end
+
+function test7()
+    return test5(true, "./test/test7_reference.csv", [:GEN, :CH, :DIS])
 end

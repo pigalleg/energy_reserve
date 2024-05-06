@@ -260,19 +260,20 @@ function solution_to_parquet(s, file_name, file_folder)
   println("...done")
 end
 
+function read_parquet_and_convert(file)
+  columns_to_symbol = [:configuration, :iteration]
+  println(file)
+  out = DataFrame(Parquet2.Dataset(file); copycols=false)
+  for k in intersect(columns_to_symbol, propertynames(out))
+    out[!, k] = Symbol.(out[!, k])
+  end
+  return out
+end
 
 function parquet_to_solution(file_name, file_folder)
   # TODO 1 convert to TerminationStatusCode
   # TODO 2 move to post_processing
-  function read_parquet_and_convert(file)
-    columns_to_symbol = [:configuration, :iteration]
-    println(file)
-    out = DataFrame(Parquet2.Dataset(file); copycols=false)
-    for k in intersect(columns_to_symbol, propertynames(out))
-      out[!, k] = Symbol.(out[!, k])
-    end
-    return out
-    end
+  
 
   keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar]
   keys = [k for k in keys if isfile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"))]

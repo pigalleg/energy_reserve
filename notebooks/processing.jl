@@ -155,9 +155,11 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   gcdi_KPI = outerjoin(
     combine(groupby(s_ed.demand, group_by_big), [:LOL_MW, :demand_MW] => ((x,y)->f_LOL(x,y)) => AsTable), 
     combine(groupby(s_ed.generation[filter,:], group_by_big), [:curtailment_MW, :production_MW] =>((x,y) -> f_CUR(x,y))=> AsTable),
-    combine(groupby(s_ed.demand, group_by_big), :LGEN_MW => sum => :LGEN_MWh),
+    # combine(groupby(s_ed.demand, group_by_big), :LGEN_MW => sum => :LGEN_MWh),
     on = group_by_big)
-  
+  if :LGEN_MW in propertynames(s_ed.demand)
+    gcdi_KPI = outerjoin(gcdi_KPI, combine(groupby(s_ed.demand, group_by_big), :LGEN_MW => sum => :LGEN_MWh),on = group_by_big)
+  end
   # folowing leftjoin will repeat values right values for "iteration"
   s_ed_scalar = s_ed.scalar[:, Not(:termination_status)]
   leftjoin!(
@@ -195,8 +197,11 @@ function calculate_adecuacy_gcd_KPI(gcdi_KPI)
   gcd_KPI = outerjoin(
     combine(groupby(gcdi_KPI, group_by), [:LLD_h, :ENS_MWh] => ((x,y)->(LOLE = mean(x), EENS = mean(y))) => AsTable),  #TODO: change format
     combine(groupby(gcdi_KPI, group_by), [:CURD_h, :CUR_MWh] => ((x,y)->(CURE = mean(x), ECUR = mean(y))) => AsTable), #TODO: change format
-    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf, :LGEN_MWh] .=> mean .=> [:EOV, :EΔOV, :ELGEN]),
+    # combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf, :LGEN_MWh] .=> mean .=> [:EOV, :EΔOV, :ELGEN]),
     on=[:configuration, :day])
+  if :LGEN_MWh in propertynames(gcdi_KPI)
+    gcdi_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => sum => :ELGEN),on = [:configuration, :day])
+  end
   transform!(gcd_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcd_KPI, :mu)
   return gcd_KPI

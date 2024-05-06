@@ -96,7 +96,7 @@ function ed()
     return solution
 end
 
-function ed_multi_demand()
+function ed_multi_demand(iteration_key)
     solution  = solve_economic_dispatch(
         gen_df,
         random_loads_multi_df,
@@ -104,7 +104,7 @@ function ed_multi_demand()
         G_MIP_GAP;
         config...
         )
-    return solution
+    return NamedTuple(k => filter(:iteration => ==(iteration_key), v) for (k,v) in zip(keys(solution), solution))
 end
 
 function uc_net_demand()
@@ -199,8 +199,8 @@ function merge_ed_solutions(solution_folders, folder_path, read = true, write = 
         keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar]
         s_uc = [parquet_to_solution("s_uc", joinpath(folder_path, s)) for s in solution_folders]
         s_ed = [parquet_to_solution("s_ed", joinpath(folder_path, s)) for s in solution_folders]
-        s_uc = NamedTuple(k => vcat([s[k] for s in s_uc]..., cols = :union) for k in keys)
-        s_ed = NamedTuple(k => vcat([s[k] for s in s_ed]..., cols = :union) for k in keys)
+        s_uc = NamedTuple(k => vcat([s[k] for s in s_uc if haskey(s, k)]...) for k in keys)
+        s_ed = NamedTuple(k => vcat([s[k] for s in s_ed if haskey(s, k)]...) for k in keys)
     end
     if write
         name = "n_$(replace(join(solution_folders, "-"), "n_" =>""))"
@@ -210,7 +210,7 @@ function merge_ed_solutions(solution_folders, folder_path, read = true, write = 
     return s_uc, s_ed
 end
 
-function generate_post_processing_KPI_files(folder_path)
+function generate_post_processing_KPI_files(folder_path, folders_to_read_ = nothing, save = true)
     function chunk_list_custom(arr, chunk_size)
         return [arr[i:min(i + chunk_size - 1, end)] for i in 1:chunk_size:length(arr)]
     end
@@ -229,9 +229,19 @@ function generate_post_processing_KPI_files(folder_path)
     end
     chunk_size = 1
     values = [[],[],[],[],[]]
-    for solution_folders in chunk_list_custom(readdir(folder_path), chunk_size)
-        values = vcat.(values, KPI_df_list(solution_folders, folder_path))
+
+    folders_to_read = last.(splitpath.(filter(isdir, readdir(folder_path; join = true))))
+    out_name = "all"
+    if !isnothing(folders_to_read_)
+        folders_to_read = intersect(folders_to_read_, folders_to_read)
+        out_name = join(folders_to_read, "_")
     end
     keys = [:gcdi_KPI_adequacy, :gcd_KPI_adequacy, :KPI_reserve, :gcdi_KPI_reserve, :gcd_KPI_reserve]
-    return NamedTuple(k => vcat(v...) for (k,v) in zip(keys, values))
+    values = vcat.([KPI_df_list(folders, folder_path) for folders in chunk_list_custom(folders_to_read, chunk_size)]...)
+    out = NamedTuple(k => v for (k,v) in zip(keys, values))
+   
+    if save
+        solution_to_parquet(out, out_name, folder_path)
+    end
+    return out
 end

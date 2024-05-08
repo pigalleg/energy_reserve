@@ -426,7 +426,6 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     μ_up = get(kwargs, :μ_up, 1)
     μ_dn = get(kwargs, :μ_dn, 1)
     VRESERVE = get(kwargs, :value_reserve, 1e-8)
-    @infiltrate
     #TODO: modify this part to format arg = get(kwargs, key, default)
     if haskey(kwargs,:storage)
         println("Adding storage...")

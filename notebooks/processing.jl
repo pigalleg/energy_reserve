@@ -197,10 +197,10 @@ function calculate_adecuacy_gcd_KPI(gcdi_KPI)
   gcd_KPI = outerjoin(
     combine(groupby(gcdi_KPI, group_by), [:LLD_h, :ENS_MWh] => ((x,y)->(LOLE = mean(x), EENS = mean(y))) => AsTable),  #TODO: change format
     combine(groupby(gcdi_KPI, group_by), [:CURD_h, :CUR_MWh] => ((x,y)->(CURE = mean(x), ECUR = mean(y))) => AsTable), #TODO: change format
-    # combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf, :LGEN_MWh] .=> mean .=> [:EOV, :EΔOV, :ELGEN]),
+    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf] .=> mean .=> [:EOV, :EΔOV]),
     on=[:configuration, :day])
   if :LGEN_MWh in propertynames(gcdi_KPI)
-    gcdi_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => sum => :ELGEN),on = [:configuration, :day])
+    gcd_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => sum => :ELGEN),on = [:configuration, :day])
   end
   transform!(gcd_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcd_KPI, :mu)

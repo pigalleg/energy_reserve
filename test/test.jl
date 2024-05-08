@@ -10,17 +10,17 @@ OBJECTIVE_VALUE = :objective_value
 SCALAR = :scalar
 
 G_N=100
-ed_config = (
-    remove_reserve_constraints = false,
-)
+
 G_MIP_GAP = 0.0001
 G_RESERVE = 0.1
 
 function test1(input_location = G_DEFAULT_LOCATION, reference_location = "./test/reference.csv")
+    #TODO: update test with value_reserve = 10^(-6) case
     ref =  CSV.read(reference_location, DataFrame)
-    
+    uc_config =  (value_reserve = 0,) # since penalization was added to objectinve function, we have to define this as zero
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, input_location)
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE, 0)
+    
     configs = generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
 
     sol = DataFrame(Dict(string(k) => solve_unit_commitment(
@@ -28,7 +28,7 @@ function test1(input_location = G_DEFAULT_LOCATION, reference_location = "./test
             loads_multi_df,
             gen_variable_multi_df,
             G_MIP_GAP;
-            v...).scalar[1, OBJECTIVE_VALUE] for (k,v) in configs
+            merge(v, uc_config)...).scalar[1, OBJECTIVE_VALUE] for (k,v) in configs
     ))
     out = vcat(sol, ref, cols = :intersect)
     out[!,:header] = [:sol, :ref]
@@ -44,7 +44,10 @@ function test2()
 end
 
 function test3(input_location = G_DEFAULT_LOCATION)
-    # configs_ = (base = configs[:base],)
+    # Testing if UC == ED provided reserve constraints are still imposed and dispatch is not fixed.
+    # TODO: outputs are different because circular constraint on SOE_{s,T_final} is removed from ED. Adapt.
+    uc_config = (value_reserve = 0,) 
+    ed_config = (remove_reserve_constraints = false,  constrain_dispatch = false)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, input_location)
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE, 0)
     configs = generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
@@ -54,7 +57,7 @@ function test3(input_location = G_DEFAULT_LOCATION)
             loads_multi_df,
             gen_variable_multi_df,
             G_MIP_GAP;
-            v...).scalar[1, OBJECTIVE_VALUE],
+            merge(v, uc_config)...).scalar[1, OBJECTIVE_VALUE],
             solve_economic_dispatch(
             gen_df,
             loads_multi_df,
@@ -77,7 +80,7 @@ function test5(constrain_dispatch = false, reference_location = "./test/test5_re
     ref = change_type(change_type(CSV.read(reference_location, DataFrame), String, Symbol), String15, Symbol)
     days = [259]
     mip_gap = 0.000000001
-    ed_config = Dict(:max_iterations => 10, :constrain_dispatch => constrain_dispatch, :remove_reserve_constraints => true, :variables_to_constrain => variables_to_constrain)
+    ed_config = Dict(:max_iterations => 10, :constrain_dispatch => constrain_dispatch, :variables_to_constrain => variables_to_constrain)
 
     μs = [(0,0), (0.1,0.1), (0.2,0.2), (0.3, 0.3), (0.4, 0.4), (0.5, 0.5), (0.6, 0.6), (0.7, 0.7), (0.75, 0.75), (0.8, 0.8), (0.85, 0.85), (0.9, 0.9), (0.95, 0.95), (1, 1)]
     configurations = [Symbol("base_ramp_storage_envelopes_up_$(replace(string(μ_up), "." => "_"))_dn_$(replace(string(μ_dn), "." => "_"))") for (μ_up, μ_dn) in μs]
@@ -115,5 +118,6 @@ function test6()
 end
 
 function test7()
+    #TODO adapt this test. After inclussion of VRESERVE output changed
     return test5(true, "./test/test7_reference.csv", [:GEN, :CH, :DIS])
 end

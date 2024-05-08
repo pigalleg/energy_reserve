@@ -228,7 +228,7 @@ function add_ramp_constraints(model, loads, gen_df)
                             gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1])
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false, μ_up = 1, μ_dn = 1, VRES = 10^(-8))
+function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false, μ_up = 1, μ_dn = 1, VRESERVE = 1e-8)
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -244,9 +244,8 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
         RESUP[G_reserve, T] >= 0
         RESDN[G_reserve, T] >= 0
     end)
-
     @objective(model, Min, 
-        objective_function(model) + VRES*sum(RESUP[g,t] + RESDN[g,t] for g in G_reserve, t in T)
+        objective_function(model) + VRESERVE*sum(RESUP[g,t] + RESDN[g,t] for g in G_reserve, t in T)
     )
 
     # (1) Reserves limited by committed capacity of generator
@@ -426,8 +425,9 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
     μ_up = get(kwargs, :μ_up, 1)
     μ_dn = get(kwargs, :μ_dn, 1)
-    VRESERVE = get(kwargs, :VRESERVE, 10^(-8))
-
+    VRESERVE = get(kwargs, :value_reserve, 1e-8)
+    @infiltrate
+    #TODO: modify this part to format arg = get(kwargs, key, default)
     if haskey(kwargs,:storage)
         println("Adding storage...")
         storage = kwargs[:storage]

@@ -10,7 +10,7 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, variables_to_constrain, VLOL = 10^6, VLGEN = 10^6)
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, variables_to_constrain, VLOL = 1e6, VLGEN = 1e6)
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -21,7 +21,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     ed = uc
     constrain_decision_variables(ed, constrain_dispatch, variables_to_constrain)
 
-    # update objective function with LOL term
+    # update objective function with LOL term and LGEN
     @variables(ed, begin 
         LOL[T] >= 0
         LGEN[T] >= 0
@@ -30,13 +30,16 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
         objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
     )
 
+    # Update supply-demand balance expression
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
     @expression(ed, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t] - LGEN[t]
     )
-    #
+    
+    # Remove SOE's circular constraints
     remove_variable_constraint(ed, :SOEFinal)
+
     # By default, (energy) reserve constraints are removed 
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
@@ -93,8 +96,8 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
     # res_up_var, res_up_var_value = res_up_variables
     # res_dn_var, res_dn_var_value = res_dn_variables
     for (var, var_value) in variables_to_constrain
-        base_name = name(first(var))
-        base_name = Symbol(match(r"([A-z]+)\[", base_name)[1])
+        # base_name = name(first(var))
+        # base_name = Symbol(match(r"([A-z]+)\[", base_name)[1])
         if get_variable_base_name(var) in [GEN, DIS]
             constraint_production_variables(var, var_value, res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
         elseif get_variable_base_name(var) in [CH]

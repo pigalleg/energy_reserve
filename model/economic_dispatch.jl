@@ -43,6 +43,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     # By default, (energy) reserve constraints are removed 
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
+
     end
     println("...done")
     return ed
@@ -67,7 +68,7 @@ function constrain_decision_variables(model, constrain_dispatch, variables_to_co
         # res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
     end 
-    fix_decision_variables(model, variables_to_fix)
+    fix_decision_variables(model, variables_to_fix, false)
 end
 
 
@@ -105,18 +106,17 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
             constraint_production_variables(var, var_value, res_dn_var, res_dn_var_value, res_up_var, res_up_var_value)
         end
     end
-    println("...done")
 end
 
-function fix_decision_variables(model, variables)
+function fix_decision_variables(model, variables, remove_variables_from_objective = true)
     println("Fixing decision variables...")
     for (var, var_value) in variables
     # for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
         for key in collect(keys(var))
            fix(var[key], var_value[key]; force = !is_binary(var[key]))
+           if remove_variables_from_objective set_objective_coefficient(model, var[key], 0) end # when set to zero they are removed from objective function
         end
     end
-    println("...done")
 end
 
 function remove_energy_and_reserve_constraints(model)
@@ -183,14 +183,16 @@ end
 
 
 function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
-    println("Solving ED...")
+    print("Solving ED...")
     optimize!(ed)
     solution = get_solution(ed)
     if haskey(kwargs,:enriched_solution)
         if kwargs[:enriched_solution] == true
+            println("done")
             return enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
         end
     end
+    println("done")
     return solution
 end
 
@@ -209,6 +211,8 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
     solutions = Dict()
     # for k in collect(propertynames(loads[!, Not(HOUR)]))
     for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
+        println("")
+        println("Montecarlo iteration: $(k)")
         gen_df_k, loads_df_k, gen_variable_k = pre_process_load_gen_variable(gen_df, rename(loads[!,[HOUR,k]], k=>DEMAND), gen_variable)
         update_demand(ed, loads_df_k)
         update_generation(ed, gen_variable_k)

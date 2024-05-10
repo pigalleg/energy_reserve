@@ -42,7 +42,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
     model = Model(Gurobi.Optimizer)
     set_optimizer_attribute(model, "MIPGap", mip_gap)
     # set_optimizer_attribute(model, "LogFile", "./output/log_file.txt")
-    # set_optimizer_attribute(model, "OutputFlag", 0)
+    set_optimizer_attribute(model, "OutputFlag", 0)
 
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)
@@ -228,7 +228,7 @@ function add_ramp_constraints(model, loads, gen_df)
                             gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1])
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false, μ_up = 1, μ_dn = 1, VRESERVE = 1e-8)
+function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false, μ_up = 1, μ_dn = 1, VRESERVE = 1e-6)
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -439,7 +439,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     end
     if haskey(kwargs,:ramp_constraints)
         if kwargs[:ramp_constraints] == true
-            println("Adding ramp constraints...")
+            println("Adding ramp constraints...")   
             add_ramp_constraints(uc, loads, gen_df)
         end
     end
@@ -451,7 +451,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
         println("Adding energy reserve constraints...")
         add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df, storage, storage_link_constraint)
     end
-
+    # println("...done")
     return uc
 end
 

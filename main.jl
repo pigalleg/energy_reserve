@@ -64,8 +64,8 @@ config = (
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
     storage_envelopes = true,
-    μ_up = .5,
-    μ_dn = .5,
+    μ_up = .3,
+    μ_dn = .3,
 )
 ed_config = (
     # remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,

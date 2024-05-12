@@ -68,7 +68,7 @@ function constrain_decision_variables(model, constrain_dispatch, variables_to_co
         # res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
     end 
-    fix_decision_variables(model, variables_to_fix, false)
+    fix_decision_variables(model, variables_to_fix, true)
 end
 
 

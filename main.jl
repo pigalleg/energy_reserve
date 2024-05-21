@@ -43,13 +43,14 @@ function generate_multipliers_configurations(μs)
     return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
 end
 
-G_N = 7 # 68
+G_N = 1 # 68
 G_RESERVE = 0.1
 G_MIP_GAP = 1e-8
 # G_REMOVE_RESERVE_CONSTRAINTS = true
 # G_CONSTRAIN_DISPATCH = true
 G_MAX_ITERATIONS = 100
 G_VRESERVE = 1e-6
+G_REMOVE_VARIABLES_FROM_OBJECTIVE = false
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
 # random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_53]]
@@ -64,14 +65,15 @@ config = (
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
     storage_envelopes = true,
-    μ_up = .3,
-    μ_dn = .3,
+    μ_up = 0,
+    μ_dn = 0,
 )
 ed_config = (
     # remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
     max_iterations = G_MAX_ITERATIONS,
     # constrain_dispatch = G_CONSTRAIN_DISPATCH,
-    value_reserve = G_VRESERVE
+    value_reserve = G_VRESERVE,
+    remove_variables_from_objective = G_REMOVE_VARIABLES_FROM_OBJECTIVE
 )
 config = merge(config, ed_config)
 
@@ -143,8 +145,11 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     reserve = get(kwargs, :reserve, 0.1)
     constrain_dispatch = get(kwargs, :constrain_dispatch, true)
     value_reserve =  get(kwargs, :value_reserve, 1e-6)
+    remove_variables_from_objective =  get(kwargs, :remove_variables_from_objective, false)
+    VLOL = get(kwargs, :VLOL, 1e6)
+    VLGEN = get(kwargs, :VLGEN, 1e6)
 
-    ed_config = Dict(:max_iterations => max_iterations, :constrain_dispatch => constrain_dispatch, :value_reserve =>value_reserve)
+    ed_config = Dict(:max_iterations => max_iterations, :constrain_dispatch => constrain_dispatch, :value_reserve =>value_reserve, :remove_variables_from_objective => remove_variables_from_objective, :VLOL => VLOL, :VLGEN => VLGEN)
     # ed_config = (max_iterations = max_iterations, constrain_dispatch = constrain_dispatch, remove_reserve_constraints = remove_reserve_constraints, VRESERVE = VRESERVE)
     configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
@@ -189,6 +194,7 @@ function generate_ed_solutions(;days, μs, kwargs...)
     for day in days
         generate_ed_solutions_([day], generate_multipliers_configurations(μs); kwargs...)
     end
+    generate_post_processing_KPI_filesget(kwargs, :input_folder, nothing)()
 end
 
 function merge_ed_solutions(solution_folders, folder_path, read = true, write = false)

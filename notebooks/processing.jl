@@ -1,6 +1,7 @@
 using DataFrames
 using Parquet2
 using MathOptInterface: TerminationStatusCode
+using Statistics
 order = [
   "solar_photovoltaic_curtailment",
   "onshore_wind_turbine_curtailment",
@@ -180,44 +181,50 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   return gcdi_KPI
 end
 
-function include_Δobjective_value(s_scalar, keys = [:day, :iteration], reference_configuration_key = :base_ramp_storage_envelopes_up_0_dn_0)
-  ref_configuration = s_scalar[s_scalar.configuration .== reference_configuration_key, union([:objective_value], keys)]
+function include_Δobjective_value(s_scalar, keys = [:day, :iteration], key = :objective_value, reference_configuration_key = :base_ramp_storage_envelopes_up_0_dn_0)
+  ref_configuration = s_scalar[s_scalar.configuration .== reference_configuration_key, union([key], keys)]
 
   s_scalar = leftjoin(s_scalar, 
-      rename(ref_configuration, :objective_value => :objective_value_ref_conf), 
+      rename(ref_configuration, key => :objective_value_ref_conf), 
       on = keys)
 
-  s_scalar.Δobjective_value_ref_conf = s_scalar.objective_value .- s_scalar.objective_value_ref_conf
-  s_scalar.Δobjective_value_relative_ref_conf = (s_scalar.objective_value .- s_scalar.objective_value_ref_conf)./s_scalar.objective_value_ref_conf
+  s_scalar.Δobjective_value_ref_conf = s_scalar[!,key] .- s_scalar.objective_value_ref_conf
+  s_scalar.Δobjective_value_relative_ref_conf = (s_scalar[!,key] .- s_scalar.objective_value_ref_conf)./s_scalar.objective_value_ref_conf
   return s_scalar
 end
 
-function calculate_adecuacy_gcd_KPI(gcdi_KPI)
-  group_by = [:configuration, :day]
+function calculate_adecuacy_gcd_KPI(gcdi_KPI, group_by = [:configuration, :day])
   gcd_KPI = outerjoin(
     combine(groupby(gcdi_KPI, group_by), [:LLD_h, :ENS_MWh] => ((x,y)->(LOLE = mean(x), EENS = mean(y))) => AsTable),  #TODO: change format
     combine(groupby(gcdi_KPI, group_by), [:CURD_h, :CUR_MWh] => ((x,y)->(CURE = mean(x), ECUR = mean(y))) => AsTable), #TODO: change format
-    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value_relative_ref_conf] .=> mean .=> [:EOV, :EΔOV]),
+    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value, :objective_value_uc] .=> mean .=> [:EOV, :EΔOV, :objective_value_uc]),
     on=[:configuration, :day])
   if :LGEN_MWh in propertynames(gcdi_KPI)
-    gcd_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => sum => :ELGEN),on = [:configuration, :day])
+    gcd_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => mean => :ELGEN),on = [:configuration, :day])
   end
   transform!(gcd_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcd_KPI, :mu)
   return gcd_KPI
 end
 
-function calculate_reserve_KPI(s_ed, s_uc)
+function calculate_reserve_KPI(s_ed, s_uc, thres =.001)
   group_by = [:configuration, :day]
   group_by_big = [:configuration, :day, :iteration]
   KPI_reserve = leftjoin(
-    s_ed.demand[!,union(group_by_big,[:hour, :demand_MW, :LOL_MW])], 
+    s_ed.demand[!,union(group_by_big,[:hour, :demand_MW, :LOL_MW, :LGEN_MW])], 
     rename(s_uc.demand[!, union(group_by,[:hour, :demand_MW])], :demand_MW => :demand_uc_MW),
     on = union(group_by,[:hour]))
 
-  required = (KPI_reserve.demand_MW .+ KPI_reserve.LOL_MW.- KPI_reserve.demand_uc_MW)
-  KPI_reserve.required_r_up_MW = required.*(required.>=0)
-  KPI_reserve.required_r_dn_MW = - required.*(required.<0)
+  KPI_reserve.required_r_MW = (KPI_reserve.demand_MW .+ KPI_reserve.LOL_MW .- KPI_reserve.demand_uc_MW)
+  KPI_reserve.required_r_relative = KPI_reserve.required_r_MW ./ KPI_reserve.demand_uc_MW
+
+  KPI_reserve.redispatch_MW = KPI_reserve.LOL_MW - KPI_reserve.LGEN_MW  #- required_reserve.curtailment_MW
+  KPI_reserve.redispatch_relative = KPI_reserve.redispatch_MW ./ KPI_reserve.demand_uc_MW
+  KPI_reserve.redispatch_needed = abs.(KPI_reserve.redispatch_MW).>=thres #not redispatch properly speaking but market deviation
+  
+  # TODO: revise the following ...
+  KPI_reserve.required_r_up_MW =   KPI_reserve.required_r_MW.*(KPI_reserve.required_r_MW.>=0)
+  KPI_reserve.required_r_dn_MW = -   KPI_reserve.required_r_MW.*(KPI_reserve.required_r_MW.<0)
 
   KPI_reserve = outerjoin(
     KPI_reserve,
@@ -227,11 +234,11 @@ function calculate_reserve_KPI(s_ed, s_uc)
 
   delivered = KPI_reserve.production_MW .+ KPI_reserve.discharge_MW .- KPI_reserve.charge_MW .- KPI_reserve.demand_uc_MW
   KPI_reserve.delivered_r_up_MW = delivered.*(delivered.>=0)
-  KPI_reserve.delivered_r_dn_MW = -(delivered .+ KPI_reserve.LOL_MW).*(delivered.<0).*(required.<0)
-
+  KPI_reserve.delivered_r_dn_MW = -(delivered .+ KPI_reserve.LOL_MW).*(delivered.<0).*(KPI_reserve.required_r_MW.<0)
   KPI_reserve.delivered_r_up_ratio  = KPI_reserve.delivered_r_up_MW./KPI_reserve.required_r_up_MW
   KPI_reserve.delivered_r_dn_ratio  = KPI_reserve.delivered_r_dn_MW./KPI_reserve.required_r_dn_MW
-  return KPI_reserve
+  # end revise....
+  return sort(transform(KPI_reserve, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu), :mu)
 end
 
 function calculate_reserve_gcdi_KPI(KPI_reserve)

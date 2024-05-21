@@ -60,6 +60,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods
       # TODO: add delta_T
+      
     @objective(model, Min,
         sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1] * gen_df[gen_df.r_id .== i,:fuel_cost][1] +
         gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] for i in G_nonvar for t in T) + 
@@ -70,6 +71,18 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
         gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
         START[i,t] for i in G_thermal for t in T)
     )
+
+    # @expression(model, OPEX,
+    #     sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1] * gen_df[gen_df.r_id .== i,:fuel_cost][1] +
+    #     gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] for i in G_nonvar for t in T) + 
+        
+    #     sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1] * GEN[i,t]  for i in G_var for t in T)  + 
+        
+    #     sum(gen_df[gen_df.r_id .== i,:start_cost_per_mw][1] * 
+    #     gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
+    #     START[i,t] for i in G_thermal for t in T)
+    # )
+    
     # Demand balance constraint (supply must = demand in all time periods)
     # Expression is constructed to reuse during ED
     @expression(model, SupplyDemand[t in T],

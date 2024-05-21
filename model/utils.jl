@@ -1,7 +1,6 @@
 using DataFrames
 using CSV
-using Random
-using Distributions
+
 
 G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
@@ -134,20 +133,8 @@ function pre_process_gen_variable(gen_df, gen_variable_info)
     on = :full_id)
 end
 
-# Functions to randomize demand. Not used by the rest of the code
-function create_random_demand(loads, nb_samples, input_location = G_DEFAULT_LOCATION)
-  # example: create_random_demand(loads, 1000)
-  out = transform(loads, :demand => ByRow(x ->  [rand(Normal(x, abs(x)*0.1/2)) for i in 1:nb_samples]) => ["demand_$i" for i in 1:nb_samples])
-  CSV.write(joinpath(input_location, "demand","random_demand.csv"), out)
-end
-
 function read_random_demand(input_location = G_DEFAULT_LOCATION)
   return CSV.read(joinpath(input_location, "demand", "random_demand.csv"), DataFrame)
-end
-
-function main()
-  gen_info, fuels, loads, gen_variable_info, storage_info = read_data()
-  create_random_demand(loads, 1000)
 end
 
 function generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)

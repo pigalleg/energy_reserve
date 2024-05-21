@@ -17,6 +17,16 @@ color_map=Dict(
     "reserve_down_MW_eff" => "green",
     "reserve_up_MW_eff" => "green",
     "SOE_MWh" => "rgba(203, 213, 232, 1)",
+    "Biomass" => "#6fc276",
+    "Hydro Pump Storage" => "darkblue",
+    "CCGT" => "grey",
+    "OCGT" => "black",
+    "Onshore Wind" => "skyblue",
+    "Hydro RoR" => "cornflowerblue",
+    "Solar" => "gold",
+    "Battery" => "green",
+    
+
 )
 
 color_discrete_map = (key) -> if haskey(color_map, key) color_map[key] else "red" end

@@ -167,9 +167,6 @@ function add_storage(model, storage, loads, gen_df)
     @objective(model, Min,
         model[:OPEX]
     )
-    # @objective(model, Min, 
-    #     objective_function(model) + sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T)
-    # )
 
     # Redefinition of supply-demand balance expression and constraint
     SupplyDemand = model[:SupplyDemand]
@@ -322,18 +319,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
         @constraint(model, ResDownStorage[s in S, t in T],
             RESDN[s,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
         )
-        # @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
-        #     RESUP[s,t] - (storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]) <= 0 
-        # )
-        # @constraint(model, ResUpStorageCapacityMin[s in S, t in T],
-        #     RESUP[s,t] - (CH[s,t] - storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1]) >= 0 
-        # )
-        # @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
-        #     RESDN[s,t] - (storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]) <= 0 
-        # )
-        # @constraint(model, ResDownStorageCapacityMin[s in S, t in T],
-        #     RESDN[s,t] - (DIS[s,t] - storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1]) >= 0 
-        # )
 
         @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
             RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
@@ -342,12 +327,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
             RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
         )
 
-        # @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
-        # RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
-        # )
-        # @constraint(model, ResDownStorageCapacityMaxBis[s in S, t in T],
-        #     RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
-        # )
         if storage_envelopes
             println("Adding storage envelopes...")
             add_envelope_constraints(model, loads, storage, μ_up, μ_dn)

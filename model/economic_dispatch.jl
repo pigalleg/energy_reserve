@@ -29,12 +29,6 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     @objective(ed, Min, 
         objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
     )
-    # Update OPEX
-    # OPEX = ed[:OPEX]
-    # remove_variable_constraint(ed, :OPEX, false)
-    # @expression(ed, OPEX,
-    #     OPEX - ed[:StartCost]
-    # )
     # Update supply-demand balance expression
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
@@ -104,11 +98,7 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
     end
 
     println("Constraining dispatch to procured reserve...")
-    # res_up_var, res_up_var_value = res_up_variables
-    # res_dn_var, res_dn_var_value = res_dn_variables
     for (var, var_value) in variables_to_constrain
-        # base_name = name(first(var))
-        # base_name = Symbol(match(r"([A-z]+)\[", base_name)[1])
         if get_variable_base_name(var) in [GEN, DIS]
             constraint_production_variables(var, var_value, res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
         elseif get_variable_base_name(var) in [CH]
@@ -172,7 +162,6 @@ end
 
 function merge_solutions(solutions::Dict, merge_keys = [ITERATION])
     #TODO can be done more elegantly
-    # solution_keys = keys(solutions[collect(keys(solutions))[1]]) # assumes all solutions have the same set of keys
     solution_keys = union([keys(v) for (k,v) in solutions]...)
     aux = Dict(k => [] for k in solution_keys)
 
@@ -214,7 +203,6 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
     ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL, VLGEN)
 
     solutions = Dict()
-    # for k in collect(propertynames(loads[!, Not(HOUR)]))
     for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
         println("")
         println("Montecarlo iteration: $(k)")

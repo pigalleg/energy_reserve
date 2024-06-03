@@ -165,9 +165,8 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   s_ed_scalar = s_ed.scalar[:, Not(:termination_status)]
   leftjoin!(
       s_ed_scalar, 
-      rename(s_uc.scalar[:, Not(:termination_status)], :objective_value =>:objective_value_uc),
-      on = setdiff(propertynames(s_ed_scalar), [:objective_value, :iteration]))
-      
+      rename(s_uc.scalar[:, Not(:termination_status)], [:objective_value =>:objective_value_uc, :OPEX => :OPEX_uc]),
+      on = setdiff(propertynames(s_ed_scalar), [:objective_value, :iteration, :OPEX]))
   # relative difference with respect to s_uc
   s_ed_scalar.Δobjective_value = s_ed_scalar.objective_value .- s_ed_scalar.objective_value_uc
   s_ed_scalar.Δobjective_value_relative = (s_ed_scalar.objective_value .- s_ed_scalar.objective_value_uc)./s_ed_scalar.objective_value_uc
@@ -197,7 +196,7 @@ function calculate_adecuacy_gcd_KPI(gcdi_KPI, group_by = [:configuration, :day])
   gcd_KPI = outerjoin(
     combine(groupby(gcdi_KPI, group_by), [:LLD_h, :ENS_MWh] => ((x,y)->(LOLE = mean(x), EENS = mean(y))) => AsTable),  #TODO: change format
     combine(groupby(gcdi_KPI, group_by), [:CURD_h, :CUR_MWh] => ((x,y)->(CURE = mean(x), ECUR = mean(y))) => AsTable), #TODO: change format
-    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value, :objective_value_uc] .=> mean .=> [:EOV, :EΔOV, :objective_value_uc]),
+    combine(groupby(gcdi_KPI, group_by), [:objective_value, :Δobjective_value, :objective_value_uc, :OPEX, :OPEX_uc] .=> mean .=> [:EOV, :EΔOV, :objective_value_uc, :EOPEX, :EOPEX_uc]),
     on=[:configuration, :day])
   if :LGEN_MWh in propertynames(gcdi_KPI)
     gcd_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => mean => :ELGEN),on = [:configuration, :day])
@@ -220,7 +219,7 @@ function calculate_reserve_KPI(s_ed, s_uc, thres =.001)
 
   KPI_reserve.redispatch_MW = KPI_reserve.LOL_MW - KPI_reserve.LGEN_MW  #- required_reserve.curtailment_MW
   KPI_reserve.redispatch_relative = KPI_reserve.redispatch_MW ./ KPI_reserve.demand_uc_MW
-  KPI_reserve.redispatch_needed = abs.(KPI_reserve.redispatch_MW).>=thres #not redispatch properly speaking but market deviation
+  KPI_reserve.redispatch_needed = (KPI_reserve.redispatch_MW.>=thres).*(KPI_reserve.required_r_MW.>=thres) .|| (KPI_reserve.redispatch_MW.<=-thres).*(KPI_reserve.required_r_MW.<=-thres) #not redispatch properly speaking but market deviation
   
   # TODO: revise the following ...
   KPI_reserve.required_r_up_MW =   KPI_reserve.required_r_MW.*(KPI_reserve.required_r_MW.>=0)

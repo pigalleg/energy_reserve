@@ -51,7 +51,7 @@ end
 function get_solution(model)
     return merge(
         get_solution_variables(model),
-        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model)),)
+        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model), OPEX = value(model[:OPEX])),)
         # (objective_value = objective_value(model), termination_status = termination_status(model))
     )
 end

@@ -29,14 +29,18 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     @objective(ed, Min, 
         objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
     )
-
+    # Update OPEX
+    # OPEX = ed[:OPEX]
+    # remove_variable_constraint(ed, :OPEX, false)
+    # @expression(ed, OPEX,
+    #     OPEX - ed[:StartCost]
+    # )
     # Update supply-demand balance expression
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
     @expression(ed, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t] - LGEN[t]
     )
-    
     # Remove SOE's circular constraints
     remove_variable_constraint(ed, :SOEFinal)
 
@@ -94,7 +98,7 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
         # By default, units not offering reserve will have their dispatch fixed.
         G_to_fix = setdiff(axes(var)[1], G)
         for key in collect(keys(var)) if key.I[1] in G_to_fix
-                fix(var[key], var_value[key], force = true) # force is needed becase the variable has bounds defined.
+                fix(var[key], var_value[key], force = true) # force is needed because the variable has bounds defined.
             end
         end
     end
@@ -131,23 +135,12 @@ end
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
-    keys = [:ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpStorage, :ResDownStorage, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
+    keys = [:ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust, :ResUpStorage, :ResDownStorage, :ResUpStorageCapacityMax, :ResDownStorageCapacityMax, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
     for k in keys
         if haskey(model, k)
             remove_variable_constraint(model, k)
         end
     end
-end
-
-function remove_variable_constraint(model, key, delete_ = true)
-    # Applies for constraints and variables
-    println("Removing $key...")
-    if !haskey(model, key)
-        println("variable not in model")
-        return
-    end
-    if delete_ delete.(model, model[key]) end # Constraints must be deleted also
-    unregister(model, key)
 end
 
 function update_demand(model, loads, key = DEMAND)

@@ -5,6 +5,18 @@ using DataFrames
 include("./utils.jl")
 include("./post_processing.jl")
 
+
+function remove_variable_constraint(model, key, delete_ = true)
+    # Applies for constraints and variables
+    println("Removing $key...")
+    if !haskey(model, key)
+        println("variable not in model")
+        return
+    end
+    if delete_ delete.(model, model[key]) end # Constraints must be deleted also
+    unregister(model, key)
+end
+
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
 function create_generators_sets(gen_df)
     # Thermal resources for which unit commitment constraints apply
@@ -60,29 +72,22 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods
       # TODO: add delta_T
-      
-    @objective(model, Min,
-        sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1] * gen_df[gen_df.r_id .== i,:fuel_cost][1] +
-        gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] for i in G_nonvar for t in T) + 
-        
-        sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1] * GEN[i,t]  for i in G_var for t in T)  + 
-        
-        sum(gen_df[gen_df.r_id .== i,:start_cost_per_mw][1] * 
-        gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
-        START[i,t] for i in G_thermal for t in T)
+    
+    @expression(model, StartCost,
+        sum(gen_df[gen_df.r_id .== i,:start_cost_per_mw][1]*gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*START[i,t] for i in G_thermal for t in T)
     )
 
-    # @expression(model, OPEX,
-    #     sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1] * gen_df[gen_df.r_id .== i,:fuel_cost][1] +
-    #     gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]) * GEN[i,t] for i in G_nonvar for t in T) + 
-        
-    #     sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1] * GEN[i,t]  for i in G_var for t in T)  + 
-        
-    #     sum(gen_df[gen_df.r_id .== i,:start_cost_per_mw][1] * 
-    #     gen_df[gen_df.r_id .== i,:existing_cap_mw][1] *
-    #     START[i,t] for i in G_thermal for t in T)
-    # )
-    
+    @expression(model, OperationalCost,
+        sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1]*gen_df[gen_df.r_id .== i,:fuel_cost][1] + gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1])*GEN[i,t] for i in G_nonvar for t in T) +  sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]*GEN[i,t]  for i in G_var for t in T)
+    )
+    @expression(model, OPEX,
+        model[:StartCost] + model[:OperationalCost]
+    )
+
+    @objective(model, Min,
+        model[:OPEX]
+    )
+
     # Demand balance constraint (supply must = demand in all time periods)
     # Expression is constructed to reuse during ED
     @expression(model, SupplyDemand[t in T],
@@ -150,9 +155,22 @@ function add_storage(model, storage, loads, gen_df)
     end)
 
     # Redefinition of objecive function
-    @objective(model, Min, 
-        objective_function(model) + sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T)
+    @expression(model, StorageOperationalCost,
+        sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T)
     )
+
+    OPEX = model[:OPEX]
+    remove_variable_constraint(model, :OPEX, false)
+    @expression(model, OPEX,
+        OPEX + model[:StorageOperationalCost]
+    )
+    @objective(model, Min,
+        model[:OPEX]
+    )
+    # @objective(model, Min, 
+    #     objective_function(model) + sum(storage[storage.r_id .== s,:var_om_cost_per_mwh][1]*(CH[s,t] + DIS[s,t]) for s in S, t in T)
+    # )
+
     # Redefinition of supply-demand balance expression and constraint
     SupplyDemand = model[:SupplyDemand]
     unregister(model, :SupplyDemand)
@@ -247,7 +265,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
-    T, _____ =  create_time_sets(loads)
+    T, T_red =  create_time_sets(loads)
     G_reserve = G_thermal
     if !isnothing(storage)
         S = create_storage_sets(storage)
@@ -260,6 +278,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
     @variables(model, begin
         RESUP[G_reserve, T] >= 0
         RESDN[G_reserve, T] >= 0
+
     end)
     @objective(model, Min, 
         objective_function(model) + VRESERVE*sum(RESUP[g,t] + RESDN[g,t] for g in G_reserve, t in T)
@@ -269,17 +288,31 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
     @constraint(model, ResUpCap[i in G_thermal, t in T],
         RESUP[i,t] <= COMMIT[i,t]*gen_df[gen_df.r_id .==i,:existing_cap_mw][1] - GEN[i,t]
     )
-
     @constraint(model, ResDnCap[i in G_thermal, t in T],
         RESDN[i,t] <= GEN[i,t] - COMMIT[i,t]*gen_df[gen_df.r_id .==i,:existing_cap_mw][1]*gen_df[gen_df.r_id .==i,:min_power][1]
     ) #TODO: calculation should be done at input file
     
     # (2) Reserves limited by ramp rates
     @constraint(model, ResUpRamp[i in G_thermal, t in T],
-        RESUP[i,t] <=  gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_up_percentage][1] )
-
+        RESUP[i,t] <=  gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_up_percentage][1]
+    )
     @constraint(model, ResDnRamp[i in G_thermal, t in T],
-        RESDN[i,t] <=  gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1] )
+        RESDN[i,t] <=  gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1]
+    )
+    # (3) Robus ramp constraints
+    @constraint(model, ResUpRampRobust[i in G_thermal, t in T_red],
+        GEN[i,t+1] + RESUP[i,t+1] - (GEN[i,t] - RESDN[i,t]) <= gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_up_percentage][1]
+    )
+    @constraint(model, ResDnRampRobust[i in G_thermal, t in T_red],
+        GEN[i,t] + RESUP[i,t] - (GEN[i,t+1] - RESDN[i,t+1]) <= gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1]
+    )
+
+    # @constraint(model, ResUpRampZero[i in G_thermal, t in T],
+    #     RESUP[i,t] <= 0
+    # )
+    # @constraint(model, ResDnRampZero[i in G_thermal, t in T],
+    #     RESDN[i,t] <= 0
+    # )
 
     # (3) Storage reserve
     if !isnothing(storage)
@@ -301,12 +334,20 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
         # @constraint(model, ResDownStorageCapacityMin[s in S, t in T],
         #     RESDN[s,t] - (DIS[s,t] - storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1]) >= 0 
         # )
-        @constraint(model, ResUpStorageCapacityMaxBis[s in S, t in T],
+
+        @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
             RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
         )
-        @constraint(model, ResDownStorageCapacityMaxBis[s in S, t in T],
+        @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
             RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
         )
+
+        # @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
+        # RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
+        # )
+        # @constraint(model, ResDownStorageCapacityMaxBis[s in S, t in T],
+        #     RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
+        # )
         if storage_envelopes
             println("Adding storage envelopes...")
             add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
@@ -455,7 +496,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
     μ_up = get(kwargs, :μ_up, 1)
     μ_dn = get(kwargs, :μ_dn, 1)
-    VRESERVE = get(kwargs, :value_reserve, 1e-8)
+    VRESERVE = get(kwargs, :value_reserve, 1e-6)
     #TODO: modify this part to format arg = get(kwargs, key, default)
     if haskey(kwargs,:storage)
         println("Adding storage...")
@@ -488,6 +529,9 @@ end
 function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
     # relax_integrality(uc)
+    # include("./debugging_ignore.jl")
+    # set_optimizer_attribute(model, "OutputFlag", 1)
+    # @infiltrate
     optimize!(uc)
     solution = get_solution(uc)
     if haskey(kwargs,:enriched_solution)

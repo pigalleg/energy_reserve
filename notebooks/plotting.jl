@@ -24,7 +24,7 @@ color_map=Dict(
     "Onshore Wind" => "skyblue",
     "Hydro RoR" => "cornflowerblue",
     "Solar" => "gold",
-    "Battery" => "green",
+    "Battery" => "rgb(136,34,85)",
     
 
 )

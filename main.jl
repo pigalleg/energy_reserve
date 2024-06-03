@@ -43,7 +43,7 @@ function generate_multipliers_configurations(μs)
     return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
 end
 
-G_N = 1 # 68
+G_N = 7 # 68
 G_RESERVE = 0.1
 G_MIP_GAP = 1e-8
 # G_REMOVE_RESERVE_CONSTRAINTS = true
@@ -51,6 +51,7 @@ G_MIP_GAP = 1e-8
 G_MAX_ITERATIONS = 100
 G_VRESERVE = 1e-6
 G_REMOVE_VARIABLES_FROM_OBJECTIVE = false
+
 
 gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
 # random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_53]]
@@ -65,8 +66,8 @@ config = (
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
     storage_envelopes = true,
-    μ_up = 0,
-    μ_dn = 0,
+    μ_up = 1,
+    μ_dn = 1,
 )
 ed_config = (
     # remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
@@ -194,7 +195,7 @@ function generate_ed_solutions(;days, μs, kwargs...)
     for day in days
         generate_ed_solutions_([day], generate_multipliers_configurations(μs); kwargs...)
     end
-    generate_post_processing_KPI_filesget(kwargs, :input_folder, nothing)()
+    generate_post_processing_KPI_files(get(kwargs, :output_folder, nothing))
 end
 
 function merge_ed_solutions(solution_folders, folder_path, read = true, write = false)

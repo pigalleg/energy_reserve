@@ -78,7 +78,10 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
     )
 
     @expression(model, OperationalCost,
-        sum( (gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1]*gen_df[gen_df.r_id .== i,:fuel_cost][1] + gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1])*GEN[i,t] for i in G_nonvar for t in T) +  sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]*GEN[i,t]  for i in G_var for t in T)
+        sum((gen_df[gen_df.r_id .== i,:heat_rate_mmbtu_per_mwh][1]*gen_df[gen_df.r_id .== i,:fuel_cost][1] + gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1])*GEN[i,t] for i in G_nonvar for t in T) +
+        sum(gen_df[gen_df.r_id .== i,:var_om_cost_per_mwh][1]*GEN[i,t]  for i in G_var for t in T) + 
+        sum(gen_df[gen_df.r_id .== i,:fixed_om_cost_per_mw_per_hour][1]*gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*COMMIT[i,t] for i in G_thermal for t in T) + 
+        sum(gen_df[gen_df.r_id .== i,:fixed_om_cost_per_mw_per_hour][1]*gen_df[gen_df.r_id .== i,:existing_cap_mw][1] for i in G_nt_nonvar for t in T)
     )
     @expression(model, OPEX,
         model[:StartCost] + model[:OperationalCost]
@@ -258,7 +261,7 @@ function add_ramp_constraints(model, loads, gen_df)
     )
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothing, storage_envelopes = false, μ_up = 1, μ_dn = 1, VRESERVE = 1e-6)
+function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_envelopes::Bool, μ_up::Float64, μ_dn::Float64, VRESERVE::Float64)
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -278,7 +281,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage = nothin
 
     end)
     @objective(model, Min, 
-        objective_function(model) + VRESERVE*sum(RESUP[g,t] + RESDN[g,t] for g in G_reserve, t in T)
+        objective_function(model) + VRESERVE*sum(RESUP[g,t] for g in G_reserve, t in T) + VRESERVE*sum(RESDN[g,t] for g in G_reserve, t in T)
     )
 
     # (1) Reserves limited by committed capacity of generator
@@ -466,16 +469,17 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, 
 
 end
 
-function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
-    println("Constructing UC...")
-    uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
-    
+function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     storage = nothing
     storage_envelopes = false
     storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
     μ_up = get(kwargs, :μ_up, 1)
     μ_dn = get(kwargs, :μ_dn, 1)
     VRESERVE = get(kwargs, :value_reserve, 1e-6)
+    mip_gap = get(kwargs, :mip_gap, 1e-8)
+
+    println("Constructing UC...")
+    uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
     #TODO: modify this part to format arg = get(kwargs, key, default)
     if haskey(kwargs,:storage)
         println("Adding storage...")
@@ -505,8 +509,8 @@ function construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs.
     return uc
 end
 
-function solve_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
-    uc = construct_unit_commitment(gen_df, loads, gen_variable, mip_gap; kwargs...)
+function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
+    uc = construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     # relax_integrality(uc)
     # include("./debugging_ignore.jl")
     # set_optimizer_attribute(model, "OutputFlag", 1)

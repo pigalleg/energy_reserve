@@ -10,7 +10,7 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL = 1e6, VLGEN = 1e6)
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool, constrain_dispatch::Bool, variables_to_constrain::Vector{Symbol}, remove_variables_from_objective::Bool, VLOL::Union{Float64,Int64}, VLGEN::Union{Float64,Int64})
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -47,7 +47,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints, cons
     return ed
 end
 
-function constrain_decision_variables(model, constrain_dispatch, remove_variables_from_objective, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT] )
+function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT] )
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -187,10 +187,10 @@ function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
     return solution
 end
 
-function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...)
+function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     # Parsing arguments...
-    remove_reserve_constraints =get(kwargs, :remove_reserve_constraints, true)
-    max_iterations = (get(kwargs, :max_iterations, NB_ITERATIONS))
+    remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, true)
+    max_iterations = get(kwargs, :max_iterations, NB_ITERATIONS)
     constrain_dispatch = get(kwargs, :constrain_dispatch, true)
     variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
     remove_variables_from_objective = get(kwargs, :remove_variables_from_objective, false)
@@ -198,7 +198,7 @@ function solve_economic_dispatch(gen_df, loads, gen_variable, mip_gap; kwargs...
     VLGEN = get(kwargs, :VLGEN, 1e6)
     # parsing end
 
-    uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable, mip_gap; kwargs...)
+    uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
     optimize!(uc)
     ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL, VLGEN)
 

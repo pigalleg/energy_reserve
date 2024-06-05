@@ -59,6 +59,7 @@ gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df
 required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
 
 config = (
+    mip_gap = G_MIP_GAP,
     ramp_constraints = true,
     storage = storage_df,
     reserve = required_reserve,
@@ -69,22 +70,20 @@ config = (
     μ_up = 1,
     μ_dn = 1,
 )
-ed_config = (
+add_config = (
     # remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
     max_iterations = G_MAX_ITERATIONS,
     # constrain_dispatch = G_CONSTRAIN_DISPATCH,
     value_reserve = G_VRESERVE,
     remove_variables_from_objective = G_REMOVE_VARIABLES_FROM_OBJECTIVE
 )
-config = merge(config, ed_config)
-
+config = merge(config, add_config)
 
 function uc()
     solution  = solve_unit_commitment(
         gen_df,
         loads_multi_df,
-        gen_variable_multi_df,
-        G_MIP_GAP;
+        gen_variable_multi_df;
         config...
         )
     return solution
@@ -94,8 +93,7 @@ function ed()
     solution  = solve_economic_dispatch(
         gen_df,
         loads_multi_df,
-        gen_variable_multi_df,
-        G_MIP_GAP;
+        gen_variable_multi_df;
         config...
         )
     return solution
@@ -105,8 +103,7 @@ function ed_multi_demand(iteration_key)
     solution  = solve_economic_dispatch(
         gen_df,
         random_loads_multi_df,
-        gen_variable_multi_df,
-        G_MIP_GAP;
+        gen_variable_multi_df;
         config...
         )
     return NamedTuple(k => filter(:iteration => ==(iteration_key), v) for (k,v) in zip(keys(solution), solution))
@@ -118,8 +115,7 @@ function uc_net_demand()
     solution  = solve_unit_commitment(
         gen_df,
         loads_multi_df,
-        gen_variable_multi_df,
-        G_MIP_GAP;
+        gen_variable_multi_df;
         config...
         )
     return solution
@@ -131,8 +127,7 @@ function ed_multi_demand_net_demand()
     solution  = solve_economic_dispatch(
         gen_df,
         random_loads_multi_df,
-        gen_variable_multi_df,
-        G_MIP_GAP;
+        gen_variable_multi_df;
         config...
         )
     return solution
@@ -141,17 +136,18 @@ end
 function generate_ed_solutions_(days, configurations; kwargs...)
     input_folder = get(kwargs, :input_folder, "./input/base_case")
     output_folder = get(kwargs, :output_folder, "./output")
-    max_iterations = get(kwargs, :max_iterations, 100)
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
-    constrain_dispatch = get(kwargs, :constrain_dispatch, true)
-    value_reserve =  get(kwargs, :value_reserve, 1e-6)
-    remove_variables_from_objective =  get(kwargs, :remove_variables_from_objective, false)
-    VLOL = get(kwargs, :VLOL, 1e6)
-    VLGEN = get(kwargs, :VLGEN, 1e6)
 
-    ed_config = Dict(:max_iterations => max_iterations, :constrain_dispatch => constrain_dispatch, :value_reserve =>value_reserve, :remove_variables_from_objective => remove_variables_from_objective, :VLOL => VLOL, :VLGEN => VLGEN)
-    # ed_config = (max_iterations = max_iterations, constrain_dispatch = constrain_dispatch, remove_reserve_constraints = remove_reserve_constraints, VRESERVE = VRESERVE)
+    add_config = Dict(
+        :mip_gap => get(kwargs, :mip_gap, 1e-8),
+        :max_iterations => get(kwargs, :max_iterations, 100),
+        :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
+        :value_reserve => get(kwargs, :value_reserve, 1e-6),
+        :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
+        :VLOL => get(kwargs, :VLOL, 1e6),
+        :VLGEN => get(kwargs, :VLGEN, 1e6)
+    )
     configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
     s_ed = Dict()
@@ -159,19 +155,17 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     for day in days, k in configurations
         gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
         required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
-        config = Dict(k => merge(v, ed_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
+        config = Dict(k => merge(v, add_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
         s_uc[(day,k)] = solve_unit_commitment(
             gen_df,
             loads_multi_df,
-            gen_variable_multi_df,
-            G_MIP_GAP;
+            gen_variable_multi_df;
             config[k]...
         )
         s_ed[(day,k)] = solve_economic_dispatch(
             gen_df,
             random_loads_multi_df,
-            gen_variable_multi_df,
-            G_MIP_GAP;
+            gen_variable_multi_df;
             config[k]...
         )
     end

@@ -53,8 +53,8 @@ end
 
 
 function pre_process_generators_data(gen_info,  fuels)
-  # Keep columns relevant to our UC model 
-  select!(gen_info, 1:26) # columns 1:26
+  # Keep columns relevant to our UC model
+  select!(gen_info, 1:28) # columns 1:26
   gen_df = outerjoin(gen_info,  fuels, on = :fuel) # load in fuel costs and add to data frame
   rename!(gen_df, :cost_per_mmbtu => :fuel_cost)   # rename column for fuel cost
   gen_df.fuel_cost[ismissing.(gen_df[:,:fuel_cost])] .= 0

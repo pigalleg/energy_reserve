@@ -47,6 +47,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
     return ed
 end
 
+
 function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT] )
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
@@ -125,7 +126,7 @@ end
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
-    keys = [:ResUpCap, :ResDnCap, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust, :ResUpStorage, :ResDownStorage, :ResUpStorageCapacityMax, :ResDownStorageCapacityMax, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpCap, :EnergyResDownCap, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement]
+    keys = [:ResUpThermal, :ResDnThermal, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust, :ResUpStorage, :ResDownStorage, :ResUpStorageCapacityMax, :ResUpStorageDisCapacityMax, :ResUpStorageChCapacityMax, :ResDownStorageDisCapacityMax, :ResDownStorageChCapacityMax, :ResDownStorageCapacityMax, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpThermal, :EnergyResDownThermal, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement, :OVMax, :OVMin, :ResUpThermalMin, :ResDownThermalMin, :CommitmentMin]
     for k in keys
         if haskey(model, k)
             remove_variable_constraint(model, k)
@@ -196,9 +197,12 @@ function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     remove_variables_from_objective = get(kwargs, :remove_variables_from_objective, false)
     VLOL = get(kwargs, :VLOL, 1e6)
     VLGEN = get(kwargs, :VLGEN, 1e6)
+    reference_solution = get(kwargs, :reference_solution, nothing)
     # parsing end
-
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
+    if !isnothing(reference_solution)
+        uc = generate_alternative_model(uc, reference_solution)
+    end
     optimize!(uc)
     ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL, VLGEN)
 

@@ -54,7 +54,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
     model = Model(Gurobi.Optimizer)
     set_optimizer_attribute(model, "MIPGap", mip_gap)
     # set_optimizer_attribute(model, "LogFile", "./output/log_file.txt")
-    # set_optimizer_attribute(model, "OutputFlag", 0)
+    set_optimizer_attribute(model, "OutputFlag", 0)
 
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)
@@ -270,19 +270,10 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     if !isnothing(storage)
         S = create_storage_sets(storage)
         G_reserve = union(G_thermal, S)
-        SOE = model[:SOE]
-        CH = model[:CH]
-        DIS = model[:DIS]
-
     end
     @variables(model, begin
         RESUP[G_reserve, T] >= 0
         RESDN[G_reserve, T] >= 0
-        # RESUPCH[G_reserve, T] >= 0
-        # RESDNCH[G_reserve, T] >= 0
-        # RESUPDIS[G_reserve, T] >= 0
-        # RESDNDIS[G_reserve, T] >= 0
-
     end)
     @objective(model, Min, 
         objective_function(model) + VRESERVE*sum(RESUP[g,t] for g in G_reserve, t in T) + VRESERVE*sum(RESDN[g,t] for g in G_reserve, t in T)
@@ -310,47 +301,86 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     @constraint(model, ResDnRampRobust[i in G_thermal, t in T_red],
         GEN[i,t] + RESUP[i,t] - (GEN[i,t+1] - RESDN[i,t+1]) <= gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1]
     )
-
-    # @constraint(model, ResUpRampZero[i in G_thermal, t in T],
-    #     RESUP[i,t] <= 0
-    # )
-    # @constraint(model, ResDnRampZero[i in G_thermal, t in T],
-    #     RESDN[i,t] <= 0
-    # )
+    @constraint(model, ResUpRampZero[i in G_thermal, t in T],
+        RESUP[i,t] <= 0
+    )
+    @constraint(model, ResDnRampZero[i in G_thermal, t in T],
+        RESDN[i,t] <= 0
+    )
 
     # (3) Storage reserve
     if !isnothing(storage)
-        @constraint(model, ResUpStorage[s in S, t in T],
-            RESUP[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
-        )
-        @constraint(model, ResDownStorage[s in S, t in T],
-            RESDN[s,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
-        )
-        # @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
-        #     RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
-        # )
-        # @constraint(model, ResUpStorageChCapacityMax[s in S, t in T],
-        #     RESUPCH[s,t] <= CH[s,t]
-        # )
-        # @constraint(model, ResDownStorageDisCapacityMax[s in S, t in T],
-        #     RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
-        # )
-        # @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
-        #     RESDNDIS[s,t] <= DIS[s,t]
-        # )
-        # @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
-        #     RESUP[s,t] <= RESUPDIS[s,t] + RESUPCH[s,t]
-        # )
-        # @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
-        #     RESDN[s,t] <= RESDNCH[s,t] + RESDNDIS[s,t]
-        # )
+        S = create_storage_sets(storage)
+        SOE = model[:SOE]
+        CH = model[:CH]
+        DIS = model[:DIS]
+        # RESUP = model[:RESUP]
+        # RESDN = model[:RESDN]
+        @variables(model, begin
+            RESUPDIS[S, T] >= 0
+            RESUPCH[S, T] >= 0
+            RESDNCH[S, T] >= 0
+            RESDNDIS[S, T] >= 0
+            U[S,T], Bin
+            D[S,T], Bin
+        end)
 
+        # Reserve up logic
+        @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
+            RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
+        )
+        @constraint(model, ResUpStorageDisLogic[s in S, t in T],
+            RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*U[s,t]
+        )
+        @constraint(model, ResUpStorageChCapacityMax[s in S, t in T],
+            RESUPCH[s,t] <= + CH[s,t]
+        )
+        @constraint(model, ResUpStorageChLogic[s in S, t in T],
+            CH[s,t] - RESUPCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-U[s,t])
+        )
+
+        # Reserve down logic
+        @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
+            RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
+        )
+        @constraint(model, ResDownStorageChLogic[s in S, t in T],
+            RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*D[s,t]
+        )
+        @constraint(model, ResDownStorageDisCapacityMax[s in S, t in T],
+            RESDNDIS[s,t] <= + DIS[s,t]
+        )
+        @constraint(model, ResDownStorageDisLogic[s in S, t in T],
+            DIS[s,t] - RESDNDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-D[s,t])
+        )
+
+
+        @constraint(model, ResUpStorageDisMax[s in S, t in T],
+            RESUPDIS[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
+        )
+        @constraint(model, ResDownStorageChMax[s in S, t in T],
+            RESDNCH[s,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
+        )
+        
         @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
-            RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
+            RESUP[s,t] == RESUPDIS[s,t] + RESUPCH[s,t]
         )
         @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
-            RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
+            RESDN[s,t] == RESDNCH[s,t] + RESDNDIS[s,t]
         )
+        
+        # @constraint(model, ResUpStorage[s in S, t in T],
+        #     RESUP[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
+        # )
+        # @constraint(model, ResDownStorage[s in S, t in T],
+        #     RESDN[s,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
+        # )
+
+        # @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
+        #     RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
+        # )
+        # @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
+        #     RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
+        # )
 
         if storage_envelopes
             println("Adding storage envelopes...")
@@ -369,12 +399,12 @@ end
 
 function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
     S = create_storage_sets(storage)
-    RESUP = model[:RESUP]
-    RESDN = model[:RESDN]
-    # RESUPCH = model[:RESUPCH]
-    # RESDNCH = model[:RESDNCH]
-    # RESUPDIS = model[:RESUPDIS]
-    # RESDNDIS = model[:RESDNDIS]
+    # RESUP = model[:RESUP]
+    # RESDN = model[:RESDN] # test what happens if removed.
+    RESUPCH = model[:RESUPCH]
+    RESDNCH = model[:RESDNCH]
+    RESUPDIS = model[:RESUPDIS]
+    RESDNDIS = model[:RESDNDIS]
 
 
     
@@ -389,10 +419,10 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
         SOEDN[S, T_incr] >= 0
     end)
     @constraint(model, SOEUpEvol[s in S, t in T], #TODO: check equations are ok
-        SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_up*RESDN[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
+        SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_up*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_up*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
     ) #TODO: add delta_T
     @constraint(model, SOEDnEvol[s in S, t in T], 
-        SOEDN[s,t]  == SOEDN[s,t-1] + (CH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_dn*RESUP[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
+        SOEDN[s,t]  == SOEDN[s,t-1] + (CH[s,t] - μ_dn*RESUPCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_dn*RESUPDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
     ) #TODO: add delta_T
     
     # SOEUP_T_initial = SOE_T_initial
@@ -512,7 +542,7 @@ function add_MGA_constraints(model, reference_solution)
     RESUP = model[:RESUP]
     RESDN = model[:RESDN]
     COMMIT = model[:COMMIT]
-
+    # LOL  = model[:LOL]
     remove_variable_constraint(model, :OVMax)
     remove_variable_constraint(model, :OVMin)
     remove_variable_constraint(model, :ResUpThermalMin)
@@ -520,12 +550,12 @@ function add_MGA_constraints(model, reference_solution)
     remove_variable_constraint(model, :CommitmentMin)
     # @infiltrate
     @constraint(model, OVMax,
-        # objective_function(model) <= (1+mip_gap)*primal
-        objective_function(model) <= primal
+        objective_function(model) <= (1+mip_gap)*primal
+        # objective_function(model) <= primal
     )
     @constraint(model, OVMin,
-        # objective_function(model) >= (1-mip_gap)*primal
-        objective_function(model) >= dual
+        objective_function(model) >= (1-mip_gap)*primal
+        # objective_function(model) >= dual
     )
 
 
@@ -535,7 +565,6 @@ function add_MGA_constraints(model, reference_solution)
     @constraint(model, ResDownThermalMin,
         sum(RESDN[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_down_MW)
     )
-
 
     # @constraint(model, ResUpThermalMin[t in T],
     #     sum(RESUP[i,t] for i in G_thermal) >=  sum(filter([:r_id, :hour] => ((x,y) -> (x in G_thermal)*(y==t)), reference_solution.reserve).reserve_up_MW)

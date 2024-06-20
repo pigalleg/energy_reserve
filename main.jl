@@ -144,14 +144,14 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
 
-    add_config = (
-        mip_gap = get(kwargs, :mip_gap, 1e-8),
-        max_iterations = get(kwargs, :max_iterations, 100),
-        constrain_dispatch = get(kwargs, :constrain_dispatch, true),
-        value_reserve = get(kwargs, :value_reserve, 1e-6),
-        remove_variables_from_objective = get(kwargs, :remove_variables_from_objective, false),
-        VLOL = get(kwargs, :VLOL, 1e6),
-        VLGEN = get(kwargs, :VLGEN, 1e6)
+    add_config = Dict(
+        :mip_gap => get(kwargs, :mip_gap, 1e-8),
+        :max_iterations => get(kwargs, :max_iterations, 100),
+        :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
+        :value_reserve => get(kwargs, :value_reserve, 1e-6),
+        :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
+        :VLOL => get(kwargs, :VLOL, 1e6),
+        :VLGEN => get(kwargs, :VLGEN, 1e6)
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
@@ -159,10 +159,11 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     for day in days, k in configurations
         gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
         required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
+        random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
         # config = Dict(k => merge(v, add_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
         config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)[k])
-        k_previous = get_reference_configuration(k, configurations)
-        
+        k_previous = get_reference_configuration(k, configurations
+        )
         # if !isnothing(k_previous) # if reference_solution is added, both uc and ed are will be solved with alternative model
         #     config = merge((reference_solution = s_uc[(day,k_previous)],), config)
         # end
@@ -172,6 +173,9 @@ function generate_ed_solutions_(days, configurations; kwargs...)
             gen_variable_multi_df;
             config...
         )
+        # if string(k) ==  "base_ramp_storage_envelopes_up_0_2_dn_0_2"
+        #    config[:save_constraints_status_for_demand] = :demand_38
+        # end
         s_ed[(day,k)] = solve_economic_dispatch(
             gen_df,
             random_loads_multi_df,

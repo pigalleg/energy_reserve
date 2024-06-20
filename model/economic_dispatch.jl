@@ -3,6 +3,7 @@ using Gurobi
 using DataFrames
 include("./unit_commitment.jl")
 include("./post_processing.jl")
+include("../debugging_ignore.jl")
 
 COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, GEN, CH, DIS, ResUpRequirement, ResDnRequirement = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :GEN, :CH, :DIS, :ResUpRequirement, :ResDnRequirement 
 ITERATION = :iteration
@@ -15,10 +16,11 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
     T, __ = create_time_sets(loads)
-    # ed = JuMP.copy(uc)
-    # set_optimizer(ed, Gurobi.Optimizer)
-    # optimize!(ed)
-    ed = uc
+    ed = JuMP.copy(uc)
+    set_optimizer(ed, Gurobi.Optimizer)
+    set_optimizer_attribute(ed, "OutputFlag", 0)
+    optimize!(ed)
+    # ed = uc
     constrain_decision_variables(ed, constrain_dispatch, remove_variables_from_objective, variables_to_constrain)
 
     # update objective function with LOL term and LGEN
@@ -29,6 +31,10 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
     @objective(ed, Min, 
         objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
     )
+    # @constraint(ed,
+    #     sum(LOL[t] for t in T) == 0 
+    # )
+
     # Update supply-demand balance expression
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
@@ -48,7 +54,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
 end
 
 
-function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT] )
+function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT, :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -60,19 +66,32 @@ function constrain_decision_variables(model, constrain_dispatch::Bool, remove_va
     end
     variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
     if constrain_dispatch & haskey(model,RESUP)
-
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
-        res_up_var, res_up_var_value = (model[RESUP], value.(model[RESUP]))
-        res_dn_var, res_dn_var_value = (model[RESDN], value.(model[RESDN]))
+        # res_up_var, res_up_var_value = (model[RESUP], value.(model[RESUP]))
+        # res_dn_var, res_dn_var_value = (model[RESDN], value.(model[RESDN]))
         # res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
-        constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+        kwargs = Dict(
+            :res_up_var => model[:RESUP],
+            :res_up_var_value => value.(model[:RESUP]),
+            :res_dn_var => model[:RESDN],
+            :res_dn_var_value => value.(model[:RESDN]),
+            :res_up_ch_var =>  model[:RESUPCH],
+            :res_up_ch_var_value => value.(model[:RESUPCH]),
+            :res_up_dis_var =>  model[:RESUPDIS],
+            :res_up_dis_var_value => value.(model[:RESUPDIS]),
+            :res_dn_ch_var =>  model[:RESDNCH],
+            :res_dn_ch_var_value => value.(model[:RESDNCH]),
+            :res_dn_dis_var =>  model[:RESDNDIS],
+            :res_dn_dis_var_value => value.(model[:RESDNDIS]),
+            )
+        constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain; kwargs...)
     end 
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
 end
 
 
 
-function constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain,  res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+function constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain; kwargs...)
     # Dispatch constrained based on the procured reserve at UC stage
     # Function fixes up to three variable types: :GEN, :CH and :DIS
     function get_variable_base_name(variable)
@@ -82,14 +101,22 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
     function constraint_production_variables(var, var_value, res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
         G = intersect(axes(res_up_var)[1], axes(var)[1])
         T = intersect(axes(res_up_var)[2], axes(var)[2])
-        model[Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")] = @constraint(model, [s in G, t in T], 
+        name_up = Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")
+        model[name_up] = @constraint(model, [s in G, t in T], 
             var[s,t] <= var_value[s,t] + res_up_var_value[s,t]
         )
+        for s in G, t in T # important to identify constraints for debugging
+            set_name(model[name_up][s,t], string(name_up)*"[$s,$t]")
+        end
         G = intersect(axes(res_dn_var)[1], axes(var)[1])
         T = intersect(axes(res_dn_var)[2], axes(var)[2])
-        model[Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_dn_var)))")] = @constraint(model, [s in G, t in T], 
+        name_dn = Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_dn_var)))")
+        model[name_dn] = @constraint(model, [s in G, t in T], 
             -var[s,t] <= -var_value[s,t] + res_dn_var_value[s,t]
         )
+        for s in G, t in T
+            set_name(model[name_dn][s,t], string(name_dn)*"[$s,$t]")
+        end
         # By default, units not offering reserve will have their dispatch fixed.
         G_to_fix = setdiff(axes(var)[1], G)
         for key in collect(keys(var)) if key.I[1] in G_to_fix
@@ -100,11 +127,13 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
 
     println("Constraining dispatch to procured reserve...")
     for (var, var_value) in variables_to_constrain
-        if get_variable_base_name(var) in [GEN, DIS]
-            constraint_production_variables(var, var_value, res_up_var, res_up_var_value, res_dn_var, res_dn_var_value)
+        if get_variable_base_name(var) in [GEN]
+            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], kwargs[:res_dn_var], kwargs[:res_dn_var_value])
+        elseif get_variable_base_name(var) in [DIS]
+            constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value])
         elseif get_variable_base_name(var) in [CH]
             # Inversing arugement allows to constraint consumption variables
-            constraint_production_variables(var, var_value, res_dn_var, res_dn_var_value, res_up_var, res_up_var_value)
+            constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value])
         end
     end
 end
@@ -126,7 +155,25 @@ end
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
-    keys = [:ResUpThermal, :ResDnThermal, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust, :ResUpStorage, :ResDownStorage, :ResUpStorageCapacityMax, :ResUpStorageDisCapacityMax, :ResUpStorageChCapacityMax, :ResDownStorageDisCapacityMax, :ResDownStorageChCapacityMax, :ResDownStorageCapacityMax, :ResUpRequirement, :ResDnRequirement, :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :EnergyResUpThermal, :EnergyResDownThermal, :EnergyResUpRamp, :EnergyResDnRamp, :EnrgyResUpStorage, :EnergyResDownStorage, :EnergyResUpRequirement, :EnerResDnRequirement, :OVMax, :OVMin, :ResUpThermalMin, :ResDownThermalMin, :CommitmentMin]
+    # todo: check fix decision variables
+    keys = [:ResUpRequirement, :ResDnRequirement,
+        :ResUpThermal, :ResDnThermal, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust,
+        :ResUpRampZero, :ResDnRampZero,
+        :ResUpStorage, :ResDownStorage, 
+        :ResUpStorageDisCapacityMax, :ResUpStorageDisLogic, :ResUpStorageChCapacityMax, :ResUpStorageChLogic,
+        :ResDownStorageChCapacityMax, :ResDownStorageChLogic, :ResDownStorageDisCapacityMax, :ResDownStorageDisLogic,
+        :ResUpStorageDisMax, :ResDownStorageChMax,
+        :ResUpStorageCapacityMax, :ResDownStorageCapacityMax,
+        # :D,:U,
+        :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :SOEDN, :SOEUP,
+        # :EnergyResUpThermal, :EnergyResDownThermal, :EnergyResUpRamp, :EnergyResDnRamp,
+        # :EnergyResUpZero, :EnergyResDnZero,
+        # :EnergyResUpStorage, :EnergyResDownStorage, :EnergyResUpLink, :EnergyResDownLink,
+        # :EnergyResUpRequirement, :EnerResDnRequirement,
+        # :OVMax, :OVMin, :ResUpThermalMin, :ResDownThermalMin, :CommitmentMin,
+        # :Startup, :Shutdown, :CommitmentStatus,
+        # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS,
+        ]
     for k in keys
         if haskey(model, k)
             remove_variable_constraint(model, k)
@@ -155,11 +202,9 @@ function update_generation(model, gen_variable)
     remove_variable_constraint(model, :Cap_var)
     GEN = model[:GEN]
     @constraint(model, Cap_var[i in 1:nrow(gen_variable)], 
-            GEN[gen_variable[i,:r_id], gen_variable[i,:hour] ] <= gen_variable[i,:cf]*gen_variable[i,:existing_cap_mw]
+        GEN[gen_variable[i,:r_id], gen_variable[i,:hour] ] <= gen_variable[i,:cf]*gen_variable[i,:existing_cap_mw]
     )
 end
-
-
 
 function merge_solutions(solutions::Dict, merge_keys = [ITERATION])
     #TODO can be done more elegantly
@@ -173,10 +218,17 @@ function merge_solutions(solutions::Dict, merge_keys = [ITERATION])
     return NamedTuple(k => vcat(aux[k]..., cols = :union) for k in keys(aux))
 end
 
-
 function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
     print("Solving ED...")
+    # @infiltrate
     optimize!(ed)
+    if !is_solved_and_feasible(ed)
+        @infiltrate
+    end
+    if get(kwargs, :save_constraints_status, false)
+        # @infiltrate
+        save_constraints_status(ed, string(get(kwargs, :save_constraints_status_for_demand, nothing)))
+    end
     solution = get_solution(ed)
     if haskey(kwargs,:enriched_solution)
         if kwargs[:enriched_solution] == true
@@ -203,16 +255,23 @@ function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     if !isnothing(reference_solution)
         uc = generate_alternative_model(uc, reference_solution)
     end
-    optimize!(uc)
+    # optimize!(uc)
     ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL, VLGEN)
 
     solutions = Dict()
+    # kwargs = merge((infiltrate = false,),kwargs)
+    kwargs = Dict(kwargs)
     for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
         println("")
         println("Montecarlo iteration: $(k)")
         gen_df_k, loads_df_k, gen_variable_k = pre_process_load_gen_variable(gen_df, rename(loads[!,[HOUR,k]], k=>DEMAND), gen_variable)
         update_demand(ed, loads_df_k)
         update_generation(ed, gen_variable_k)
+        if (k == get(kwargs, :save_constraints_status_for_demand, false)) 
+            kwargs[:save_constraints_status] = true
+        else
+            kwargs[:save_constraints_status] = false
+        end
         solutions[k] = solve_economic_dispatch_(ed, gen_df_k, loads_df_k, gen_variable_k; kwargs...)
     end
     return merge_solutions(solutions)

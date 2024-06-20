@@ -33,6 +33,10 @@ function filter_periods(simulation_day, loads_df, gen_variable_df, random_loads_
   return loads_multi_df, gen_variable_multi_df, random_loads_multi_df
 end
 
+function filter_demand(loads_df, random_loads_df, required_reserve)
+  return transform(random_loads_df, Not(:hour) .=> (x -> clamp.(x, loads_df.demand .- required_reserve.reserve_down_MW, loads_df.demand .+ required_reserve.reserve_up_MW)) .=> Not(:hour))
+end
+
 function read_data(input_location = G_DEFAULT_LOCATION)
   input_data_location = joinpath(input_location, "uc_data")
   gen_info = CSV.read(joinpath(input_data_location,"Generators_data.csv"), DataFrame)
@@ -214,14 +218,14 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
 end
 
 function generate_envelope_configuration(key::Symbol, μ_up, μ_dn, storage_df, required_reserve)
-  return Dict(key => (
-      ramp_constraints = true,
-      storage = storage_df,
-      reserve = required_reserve,
-      enriched_solution = true,
-      storage_envelopes = true,
-      μ_up = μ_up,
-      μ_dn = μ_dn)
+  return Dict(key => Dict(
+      :ramp_constraints => true,
+      :storage => storage_df,
+      :reserve => required_reserve,
+      :enriched_solution => true,
+      :storage_envelopes => true,
+      :μ_up => μ_up,
+      :μ_dn => μ_dn)
   )
 end
 

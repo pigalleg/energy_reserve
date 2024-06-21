@@ -34,7 +34,6 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
     # @constraint(ed,
     #     sum(LOL[t] for t in T) == 0 
     # )
-
     # Update supply-demand balance expression
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
@@ -47,14 +46,13 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
     # By default, (energy) reserve constraints are removed 
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
-
     end
     println("...done")
     return ed
 end
 
 
-function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT, :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
+function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -170,9 +168,11 @@ function remove_energy_and_reserve_constraints(model)
         # :EnergyResUpZero, :EnergyResDnZero,
         # :EnergyResUpStorage, :EnergyResDownStorage, :EnergyResUpLink, :EnergyResDownLink,
         # :EnergyResUpRequirement, :EnerResDnRequirement,
-        # :OVMax, :OVMin, :ResUpThermalMin, :ResDownThermalMin, :CommitmentMin,
-        # :Startup, :Shutdown, :CommitmentStatus,
-        # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS,
+        :OVMax, :OVMin, :ResUpThermalMin, :ResDownThermalMin, :CommitmentMin, :ResUpStorageMax, :ResUpStorageMin,
+        :Startup, :Shutdown, :CommitmentStatus,
+        #:RESUP, :RESDN, -> do not remove because belong to the OF.
+        :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS,
+        # :COMMIT, :START, :SHUT, -> do not remove because belong to the OF.
         ]
     for k in keys
         if haskey(model, k)
@@ -220,13 +220,11 @@ end
 
 function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
     print("Solving ED...")
-    # @infiltrate
     optimize!(ed)
     if !is_solved_and_feasible(ed)
         @infiltrate
     end
     if get(kwargs, :save_constraints_status, false)
-        # @infiltrate
         save_constraints_status(ed, string(get(kwargs, :save_constraints_status_for_demand, nothing)))
     end
     solution = get_solution(ed)
@@ -257,9 +255,9 @@ function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     end
     # optimize!(uc)
     ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL, VLGEN)
-
+    # save_model_to_file(ed,"ed")
     solutions = Dict()
-    # kwargs = merge((infiltrate = false,),kwargs)
+    
     kwargs = Dict(kwargs)
     for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
         println("")

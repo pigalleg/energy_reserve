@@ -1,6 +1,7 @@
 using JuMP
 using Gurobi
 using DataFrames
+using Infiltrator
 # using HiGHS
 include("./utils.jl")
 include("./post_processing.jl")
@@ -406,8 +407,6 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
     RESUPDIS = model[:RESUPDIS]
     RESDNDIS = model[:RESDNDIS]
 
-
-    
     SOE = model[:SOE]
     CH = model[:CH]
     DIS = model[:DIS]
@@ -538,17 +537,19 @@ function add_MGA_constraints(model, reference_solution)
 
     T = axes(model[:ResUpThermal])[2]
     G_thermal = axes(model[:ResUpThermal])[1]
-    # S = axes(model[:ResDownStorage])[1]
+    S = axes(model[:ResUpStorageCapacityMax])[1]
     RESUP = model[:RESUP]
     RESDN = model[:RESDN]
     COMMIT = model[:COMMIT]
     # LOL  = model[:LOL]
-    remove_variable_constraint(model, :OVMax)
-    remove_variable_constraint(model, :OVMin)
-    remove_variable_constraint(model, :ResUpThermalMin)
-    remove_variable_constraint(model, :ResDownThermalMin)
-    remove_variable_constraint(model, :CommitmentMin)
-    # @infiltrate
+    # remove_variable_constraint(model, :OVMax)
+    # remove_variable_constraint(model, :OVMin)
+    # remove_variable_constraint(model, :ResUpThermalMin)
+    # remove_variable_constraint(model, :ResDownThermalMin)
+    # remove_variable_constraint(model, :CommitmentMin)
+    # remove_variable_constraint(model, :ResUpStorageMax)
+    # remove_variable_constraint(model, :ResUpStorageMin)
+
     @constraint(model, OVMax,
         objective_function(model) <= (1+mip_gap)*primal
         # objective_function(model) <= primal
@@ -558,13 +559,28 @@ function add_MGA_constraints(model, reference_solution)
         # objective_function(model) >= dual
     )
 
+    # set_optimizer_attribute(model, "PoolGap", mip_gap)
+    
+    # @constraint(model, ResUpStorageMin[s in S, t in T],
+    #     RESUP[s,t] >=  (filter([:r_id, :hour] => ((x,y) -> (x == s)*(y==t)), reference_solution.reserve).reserve_up_MW)[1]
+    # )
+    # T_ = 169:176
+    # @constraint(model, ResUpStorageMax[t in T_],
+    #     RESUP[101,t] <=  0
+    # )
+    @constraint(model, ResUpStorageMax[s in S, t in T],
+        RESUP[s,t] <=  (filter([:r_id, :hour] => ((x,y) -> (x == s)*(y==t)), reference_solution.reserve).reserve_up_MW)[1]
+    )
+    # @constraint(model, ResDownStorageMin[s in S, t in T],,
+    #     sum(RESDN[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_down_MW)
+    # )
 
-    @constraint(model, ResUpThermalMin,
-        sum(RESUP[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_up_MW)
-    )
-    @constraint(model, ResDownThermalMin,
-        sum(RESDN[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_down_MW)
-    )
+    # @constraint(model, ResUpThermalMin,
+    #     sum(RESUP[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_up_MW)
+    # )
+    # @constraint(model, ResDownThermalMin,
+    #     sum(RESDN[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_down_MW)
+    # )
 
     # @constraint(model, ResUpThermalMin[t in T],
     #     sum(RESUP[i,t] for i in G_thermal) >=  sum(filter([:r_id, :hour] => ((x,y) -> (x in G_thermal)*(y==t)), reference_solution.reserve).reserve_up_MW)
@@ -589,17 +605,7 @@ function add_MGA_constraints(model, reference_solution)
     # )
 end
 
-function generate_alternative_model(model, reference_solution)
-    # Assumes reference_solution is enriched (cf. enrich_dfs())
-    println("Adding MGA constraints...")
-    # model = JuMP.copy(model)
-    # set_optimizer(model, Gurobi.Optimizer) 
-    optimize!(model)
-    # aux = get_solution(uc).scalar.objective_value[1]
-    add_MGA_constraints(model, reference_solution)
-    # optimize!(model)
-    return model
-end
+
 
 function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     storage = nothing
@@ -641,6 +647,18 @@ function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     return uc
 end
 
+function generate_alternative_model(model, reference_solution)
+    # Assumes reference_solution is enriched (cf. enrich_dfs())
+    println("Adding MGA constraints...")
+    # model = JuMP.copy(model)
+    # set_optimizer(model, Gurobi.Optimizer) 
+    optimize!(model) # Optimizitation is needed since OV will be used as reference.
+    # aux = get_solution(uc).scalar.objective_value[1]
+    add_MGA_constraints(model, reference_solution)
+    # optimize!(model)
+    return model
+end
+
 function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     reference_solution =  get(kwargs, :reference_solution, nothing)
     enriched_solution = get(kwargs, :enriched_solution, true)
@@ -648,23 +666,18 @@ function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     # relax_integrality(uc)
     # include("./debugging_ignore.jl")
     # set_optimizer_attribute(model, "OutputFlag", 1)
-    
-    
     if !isnothing(reference_solution)
-        
         uc = generate_alternative_model(uc, reference_solution)
-        # println(aux - get_solution(uc).scalar.objective_value[1])
     end
+    # save_model_to_file(uc,"uc")
     optimize!(uc)
+    if !is_solved_and_feasible(uc)
+        @infiltrate
+        # list = get_conflicting_constraints(uc)
+    end
     solution = get_solution(uc)
-    
     if enriched_solution #TODO: remove enriched_solution flag so it is by default
         return enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
     end
-    # if haskey(kwargs,:enriched_solution) #TODO: remove enriched_solution flag so it is by default
-    #     if kwargs[:enriched_solution] == true
-    #         return enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
-    #     end
-    # end
     return solution
 end

@@ -148,7 +148,6 @@ function add_storage(model, storage, loads, gen_df)
     T_incr = copy(T)
     pushfirst!(T_incr, T_incr[1]-1)
     S = create_storage_sets(storage)
-    big_M = 1000
     GEN = model[:GEN]
     # START = model[:START]
     @variables(model, begin
@@ -187,10 +186,11 @@ function add_storage(model, storage, loads, gen_df)
 
     # Charging-discharging logic
     @constraint(model, ChargeLogic[s in S, t in T],
-        CH[s,t] <= big_M*M[s,t]
+        CH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*M[s,t]
     )
     @constraint(model, DischargeLogic[s in S, t in T],
-        DIS[s,t] <= big_M*(1-M[s,t])
+        DIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-M[s,t])
+
     )
     
     # Storage constraints
@@ -204,14 +204,8 @@ function add_storage(model, storage, loads, gen_df)
     @constraint(model, SOEMin[s in S, t in T],
         SOE[s,t] >= storage[storage.r_id .== s,:min_energy_mwh][1]
     )
-    @constraint(model, CHMax[s in S, t in T],
-        CH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]
-    )
     @constraint(model, CHMin[s in S, t in T],
         CH[s,t] >= storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1] #TODO: calculation should be done at input file
-    )
-    @constraint(model, DISMax[s in S, t in T],
-        DIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]
     )
     @constraint(model, DISMin[s in S, t in T],
         DIS[s,t] >= storage[storage.r_id .== s,:existing_cap_mw][1]*storage[storage.r_id .== s,:min_power][1] #TODO: calculation should be done at input file
@@ -565,12 +559,13 @@ function add_MGA_constraints(model, reference_solution)
     #     RESUP[s,t] >=  (filter([:r_id, :hour] => ((x,y) -> (x == s)*(y==t)), reference_solution.reserve).reserve_up_MW)[1]
     # )
     # T_ = 169:176
+    # T_ = [172]
     # @constraint(model, ResUpStorageMax[t in T_],
     #     RESUP[101,t] <=  0
     # )
-    @constraint(model, ResUpStorageMax[s in S, t in T],
-        RESUP[s,t] <=  (filter([:r_id, :hour] => ((x,y) -> (x == s)*(y==t)), reference_solution.reserve).reserve_up_MW)[1]
-    )
+    # @constraint(model, ResUpStorageMax[s in S, t in T],
+    #     RESUP[s,t] <=  (filter([:r_id, :hour] => ((x,y) -> (x == s)*(y==t)), reference_solution.reserve).reserve_up_MW)[1]
+    # )
     # @constraint(model, ResDownStorageMin[s in S, t in T],,
     #     sum(RESDN[i,t] for i in G_thermal, t in T) >=  sum(filter(:r_id => x -> x in G_thermal, reference_solution.reserve).reserve_down_MW)
     # )
@@ -605,7 +600,17 @@ function add_MGA_constraints(model, reference_solution)
     # )
 end
 
-
+function generate_alternative_model(model, reference_solution)
+    # Assumes reference_solution is enriched (cf. enrich_dfs())
+    println("Adding MGA constraints...")
+    # model = JuMP.copy(model)
+    # set_optimizer(model, Gurobi.Optimizer) 
+    optimize!(model) # Optimizitation is needed since OV will be used as reference.
+    # aux = get_solution(uc).scalar.objective_value[1]
+    add_MGA_constraints(model, reference_solution)
+    # optimize!(model)
+    return model
+end
 
 function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     storage = nothing
@@ -615,6 +620,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     μ_dn = get(kwargs, :μ_dn, 1)
     VRESERVE = get(kwargs, :value_reserve, 1e-6)
     mip_gap = get(kwargs, :mip_gap, 1e-8)
+    up_down_storage_reserve = get(kwargs, :mip_gap, true)
 
     println("Constructing UC...")
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
@@ -647,22 +653,13 @@ function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     return uc
 end
 
-function generate_alternative_model(model, reference_solution)
-    # Assumes reference_solution is enriched (cf. enrich_dfs())
-    println("Adding MGA constraints...")
-    # model = JuMP.copy(model)
-    # set_optimizer(model, Gurobi.Optimizer) 
-    optimize!(model) # Optimizitation is needed since OV will be used as reference.
-    # aux = get_solution(uc).scalar.objective_value[1]
-    add_MGA_constraints(model, reference_solution)
-    # optimize!(model)
-    return model
-end
+
 
 function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     reference_solution =  get(kwargs, :reference_solution, nothing)
     enriched_solution = get(kwargs, :enriched_solution, true)
     uc = construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
+
     # relax_integrality(uc)
     # include("./debugging_ignore.jl")
     # set_optimizer_attribute(model, "OutputFlag", 1)

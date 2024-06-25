@@ -11,7 +11,7 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool, constrain_dispatch::Bool, variables_to_constrain::Vector{Symbol}, remove_variables_from_objective::Bool, VLOL::Union{Float64,Int64}, VLGEN::Union{Float64,Int64})
+function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64}, VLGEN::Union{Float64,Int64})
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -21,7 +21,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
     set_optimizer_attribute(ed, "OutputFlag", 0)
     optimize!(ed)
     # ed = uc
-    constrain_decision_variables(ed, constrain_dispatch, remove_variables_from_objective, variables_to_constrain)
+    constrain_decision_variables(ed, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
 
     # update objective function with LOL term and LGEN
     @variables(ed, begin 
@@ -52,7 +52,7 @@ function construct_economic_dispatch(uc, loads, remove_reserve_constraints::Bool
 end
 
 
-function constrain_decision_variables(model, constrain_dispatch::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
+function constrain_decision_variables(model, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -82,14 +82,14 @@ function constrain_decision_variables(model, constrain_dispatch::Bool, remove_va
             :res_dn_dis_var =>  model[:RESDNDIS],
             :res_dn_dis_var_value => value.(model[:RESDNDIS]),
             )
-        constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain; kwargs...)
+        constrain_dispatch_variables_according_to_reserve(model, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
     end 
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
 end
 
 
 
-function constrain_dispatch_variables_according_to_reserve(model, variables_to_constrain; kwargs...)
+function constrain_dispatch_variables_according_to_reserve(model, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
     # Dispatch constrained based on the procured reserve at UC stage
     # Function fixes up to three variable types: :GEN, :CH and :DIS
     function get_variable_base_name(variable)
@@ -124,14 +124,26 @@ function constrain_dispatch_variables_according_to_reserve(model, variables_to_c
     end
 
     println("Constraining dispatch to procured reserve...")
+    if bidirectional_storage_reserve
+        gen_logic_group = [GEN]
+        dis_logic_group = [DIS]
+        ch_logic_group = [CH]
+        ch_logic_group_2 = []
+    else
+        gen_logic_group = [GEN, DIS]
+        dis_logic_group = []
+        ch_logic_group = []
+        ch_logic_group_2 = [CH]
+    end
     for (var, var_value) in variables_to_constrain
-        if get_variable_base_name(var) in [GEN]
+        if get_variable_base_name(var) in gen_logic_group
             constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], kwargs[:res_dn_var], kwargs[:res_dn_var_value])
-        elseif get_variable_base_name(var) in [DIS]
+        elseif get_variable_base_name(var) in dis_logic_group
             constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value])
-        elseif get_variable_base_name(var) in [CH]
-            # Inversing arugement allows to constraint consumption variables
+        elseif get_variable_base_name(var) in ch_logic_group
             constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value])
+        elseif get_variable_base_name(var) in ch_logic_group_2
+            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], kwargs[:res_up_var], kwargs[:res_up_var_value])
         end
     end
 end
@@ -248,13 +260,14 @@ function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     VLOL = get(kwargs, :VLOL, 1e6)
     VLGEN = get(kwargs, :VLGEN, 1e6)
     reference_solution = get(kwargs, :reference_solution, nothing)
+    bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
     # parsing end
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
     if !isnothing(reference_solution)
         uc = generate_alternative_model(uc, reference_solution)
     end
     # optimize!(uc)
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, variables_to_constrain, remove_variables_from_objective, VLOL, VLGEN)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], remove_reserve_constraints, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
     # save_model_to_file(ed,"ed")
     solutions = Dict()
     

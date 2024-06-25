@@ -159,6 +159,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
         :VLOL => get(kwargs, :VLOL, 1e6),
         :VLGEN => get(kwargs, :VLGEN, 1e6),
+        :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
+        :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()

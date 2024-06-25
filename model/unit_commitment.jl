@@ -256,7 +256,7 @@ function add_ramp_constraints(model, loads, gen_df)
     )
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_envelopes::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
+function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -296,12 +296,19 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     @constraint(model, ResDnRampRobust[i in G_thermal, t in T_red],
         GEN[i,t] + RESUP[i,t] - (GEN[i,t+1] - RESDN[i,t+1]) <= gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1]
     )
-    @constraint(model, ResUpRampZero[i in G_thermal, t in T],
-        RESUP[i,t] <= 0
-    )
-    @constraint(model, ResDnRampZero[i in G_thermal, t in T],
-        RESDN[i,t] <= 0
-    )
+    if !thermal_reserve
+        for i in G_thermal, t in T
+            fix(RESUP[i,t], 0, force = true)
+            fix(RESDN[i,t], 0, force = true)
+        end
+        # @constraint(model, ResUpRampZero[i in G_thermal, t in T],
+        #     RESUP[i,t] <= 0
+        # )
+        # @constraint(model, ResDnRampZero[i in G_thermal, t in T],
+        #     RESDN[i,t] <= 0
+        # )
+    end
+    
 
     # (3) Storage reserve
     if !isnothing(storage)
@@ -320,6 +327,12 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             D[S,T], Bin
         end)
 
+        # if !bidirectional_storage_reserve
+        #     Q = 0
+            
+
+        # end
+
         # Reserve up logic
         @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
             RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
@@ -333,7 +346,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
         @constraint(model, ResUpStorageChLogic[s in S, t in T],
             CH[s,t] - RESUPCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-U[s,t])
         )
-
         # Reserve down logic
         @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
             RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
@@ -348,7 +360,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             DIS[s,t] - RESDNDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-D[s,t])
         )
 
-
         @constraint(model, ResUpStorageDisMax[s in S, t in T],
             RESUPDIS[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
         )
@@ -362,7 +373,28 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
         @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
             RESDN[s,t] == RESDNCH[s,t] + RESDNDIS[s,t]
         )
-        
+
+        if !bidirectional_storage_reserve
+            for s in S, t in T
+                fix(RESUPCH[s,t], 0, force = true)
+                fix(RESDNDIS[s,t], 0, force = true)
+                fix(U[s,t], 1, force = true)
+                fix(D[s,t], 1, force = true)
+            end
+            remove_variable_constraint(model, :ResUpStorageDisLogic)
+            remove_variable_constraint(model, :ResUpStorageChLogic)
+            remove_variable_constraint(model, :ResDownStorageChLogic)
+            remove_variable_constraint(model, :ResDownStorageDisLogic)
+            
+            remove_variable_constraint(model, :ResUpStorageDisCapacityMax)
+            @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
+                RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
+            )
+            remove_variable_constraint(model, :ResDownStorageChCapacityMax)
+            @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
+                RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
+            )
+        end
         # @constraint(model, ResUpStorage[s in S, t in T],
         #     RESUP[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
         # )
@@ -484,14 +516,6 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, 
             gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
-
-    @constraint(model, EnergyResUpZero[i in G_thermal, j in T, t in T; j <= t],
-        ERESUP[i, j, t] == 0
-    )
-    @constraint(model, EnergyResDnZero[i in G_thermal, j in T, t in T; j <= t],
-        ERESDN[i, j, t] == 0
-    )
-
     # (3) Storage reserve
     if !isnothing(storage)
         @constraint(model, EnergyResUpStorage[s in S, j in T, t in T; j <= t],
@@ -620,7 +644,8 @@ function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     μ_dn = get(kwargs, :μ_dn, 1)
     VRESERVE = get(kwargs, :value_reserve, 1e-6)
     mip_gap = get(kwargs, :mip_gap, 1e-8)
-    up_down_storage_reserve = get(kwargs, :mip_gap, true)
+    bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
+    thermal_reserve = get(kwargs, :thermal_reserve, false)
 
     println("Constructing UC...")
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
@@ -643,7 +668,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     end
     if haskey(kwargs,:reserve)
         println("Adding reserve constraints...")
-        add_reserve_constraints(uc, kwargs[:reserve], loads, gen_df, storage, storage_envelopes, μ_up, μ_dn, VRESERVE)
+        add_reserve_constraints(uc, kwargs[:reserve], loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE)
     end
     if haskey(kwargs,:energy_reserve)
         println("Adding energy reserve constraints...")

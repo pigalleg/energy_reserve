@@ -298,17 +298,10 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     )
     if !thermal_reserve
         for i in G_thermal, t in T
-            fix(RESUP[i,t], 0, force = true)
-            fix(RESDN[i,t], 0, force = true)
+            fix(RESUP[i,t], 0.0, force = true)
+            fix(RESDN[i,t], 0.0, force = true)
         end
-        # @constraint(model, ResUpRampZero[i in G_thermal, t in T],
-        #     RESUP[i,t] <= 0
-        # )
-        # @constraint(model, ResDnRampZero[i in G_thermal, t in T],
-        #     RESDN[i,t] <= 0
-        # )
     end
-    
 
     # (3) Storage reserve
     if !isnothing(storage)
@@ -326,12 +319,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             U[S,T], Bin
             D[S,T], Bin
         end)
-
-        # if !bidirectional_storage_reserve
-        #     Q = 0
-            
-
-        # end
 
         # Reserve up logic
         @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
@@ -386,14 +373,14 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             remove_variable_constraint(model, :ResDownStorageChLogic)
             remove_variable_constraint(model, :ResDownStorageDisLogic)
             
-            remove_variable_constraint(model, :ResUpStorageDisCapacityMax)
-            @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
-                RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
-            )
-            remove_variable_constraint(model, :ResDownStorageChCapacityMax)
-            @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
-                RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
-            )
+            # remove_variable_constraint(model, :ResUpStorageDisCapacityMax)
+            # @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
+            #     RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
+            # )
+            # remove_variable_constraint(model, :ResDownStorageChCapacityMax)
+            # @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
+            #     RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
+            # )
         end
         # @constraint(model, ResUpStorage[s in S, t in T],
         #     RESUP[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T

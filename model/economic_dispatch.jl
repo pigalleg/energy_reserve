@@ -165,10 +165,9 @@ end
 function remove_energy_and_reserve_constraints(model)
     println("Removing reserve, energy reserve and envelope constraints...")
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
-    # todo: check fix decision variables
+    # TODO: check fix decision variables
     keys = [:ResUpRequirement, :ResDnRequirement,
         :ResUpThermal, :ResDnThermal, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust,
-        :ResUpRampZero, :ResDnRampZero,
         :ResUpStorage, :ResDownStorage, 
         :ResUpStorageDisCapacityMax, :ResUpStorageDisLogic, :ResUpStorageChCapacityMax, :ResUpStorageChLogic,
         :ResDownStorageChCapacityMax, :ResDownStorageChLogic, :ResDownStorageDisCapacityMax, :ResDownStorageDisLogic,

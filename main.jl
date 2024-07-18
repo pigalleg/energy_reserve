@@ -161,6 +161,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :VLGEN => get(kwargs, :VLGEN, 1e6),
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
+        :constrain_SOE => get(kwargs, :constrain_SOE, false),
+        :constrain_by_energy => get(kwargs, :constrain_by_energy, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
@@ -239,7 +241,7 @@ function generate_post_processing_KPI_files(folder_path, folders_to_read_ = noth
     end
 
     function KPI_df_list(solution_folders, folder_path)
-        println("Calculating adecuacy KPIS...)")
+        println("Calculating adecuacy KPIS...")
         s_uc, s_ed = merge_ed_solutions(solution_folders, folder_path)
         gcdi_KPI_adequacy = calculate_adecuacy_gcdi_KPI(s_ed, s_uc)
         gcd_KPI_adequacy = calculate_adecuacy_gcd_KPI(gcdi_KPI_adequacy)

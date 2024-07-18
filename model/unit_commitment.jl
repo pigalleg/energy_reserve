@@ -474,7 +474,6 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, 
         S = create_storage_sets(storage)
         G_reserve = union(G_thermal, S)
         SOE = model[:SOE]
-
     end
 
     @variables(model, begin

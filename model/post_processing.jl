@@ -68,10 +68,14 @@ function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
     out = Dict(pairs(solution[[:scalar]]))
     # out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
     out[:generation] = get_enriched_generation(solution, gen_df, gen_variable)
+    out[:generation_parameters] = get_generation_parameters(gen_df)
+    
     data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching
     if haskey(kwargs, :storage)
-        append!(data, kwargs[:storage][!,FIELD_FOR_ENRICHING] )
+        storage = kwargs[:storage]
+        append!(data, storage[!,FIELD_FOR_ENRICHING] )
         out[:storage] = get_enriched_storage(solution, data)
+        out[:storage_parameters] = get_storage_parameters(storage)
     end
     if haskey(solution, :RESUP) & haskey(solution, :RESDN)
         out[:reserve] =  get_enriched_reserve(solution, data)
@@ -167,4 +171,14 @@ function get_enriched_demand(solution, loads)
         replace!(demand.LGEN_MW, missing => 0)
     end
     return demand
-end 
+end
+
+function get_generation_parameters(gen_df)
+    parameters_to_get = [:existing_cap_mw, :min_power]
+    return rename(copy(gen_df[!,union(FIELD_FOR_ENRICHING, parameters_to_get)]), :existing_cap_mw => :P_max_MW)
+end
+
+function get_storage_parameters(storage)
+    parameters_to_get = [:existing_cap_mw, :max_energy_mwh, :charge_efficiency, :discharge_efficiency]
+    return rename(storage[!,union(FIELD_FOR_ENRICHING, parameters_to_get)],[:existing_cap_mw, :max_energy_mwh] .=> [:P_max_MW, :SOE_max_MWh])
+end

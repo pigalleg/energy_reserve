@@ -324,26 +324,26 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
         @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
             RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
         )
-        @constraint(model, ResUpStorageDisLogic[s in S, t in T],
+        @constraint(model, ResUpStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
             RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*U[s,t]
         )
         @constraint(model, ResUpStorageChCapacityMax[s in S, t in T],
             RESUPCH[s,t] <= + CH[s,t]
         )
-        @constraint(model, ResUpStorageChLogic[s in S, t in T],
+        @constraint(model, ResUpStorageChLogic[s in S, t in T], #comment this block to obtain Brunninx
             CH[s,t] - RESUPCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-U[s,t])
         )
         # Reserve down logic
         @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
             RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
         )
-        @constraint(model, ResDownStorageChLogic[s in S, t in T],
+        @constraint(model, ResDownStorageChLogic[s in S, t in T], #comment this block to obtain Brunninx
             RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*D[s,t]
         )
         @constraint(model, ResDownStorageDisCapacityMax[s in S, t in T],
             RESDNDIS[s,t] <= + DIS[s,t]
         )
-        @constraint(model, ResDownStorageDisLogic[s in S, t in T],
+        @constraint(model, ResDownStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
             DIS[s,t] - RESDNDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-D[s,t])
         )
 
@@ -382,6 +382,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             #     RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
             # )
         end
+
         # @constraint(model, ResUpStorage[s in S, t in T],
         #     RESUP[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
         # )
@@ -430,7 +431,7 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
         SOEUP[S, T_incr] >= 0
         SOEDN[S, T_incr] >= 0
     end)
-    @constraint(model, SOEUpEvol[s in S, t in T], #TODO: check equations are ok
+    @constraint(model, SOEUpEvol[s in S, t in T],
         SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_up*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_up*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
     ) #TODO: add delta_T
     @constraint(model, SOEDnEvol[s in S, t in T], 

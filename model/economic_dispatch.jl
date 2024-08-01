@@ -11,25 +11,36 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, constrain_SOE::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, constrain_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64}, VLGEN::Union{Float64,Int64})
+function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
+    function convert_to_indexed_vector(value, length)
+        if value isa Number
+            return Dict(T .=> fill(value, length))
+        else
+            return Dict(T .=> value)
+        end
+    end
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
     T, __ = create_time_sets(loads)
+    VLOL = convert_to_indexed_vector(VLOL, length(T))
+    VLGEN = convert_to_indexed_vector(VLGEN, length(T))
     ed = JuMP.copy(uc)
     set_optimizer(ed, Gurobi.Optimizer)
     set_optimizer_attribute(ed, "OutputFlag", 0)
+    set_optimizer_attribute(ed, "MIPGap", get_optimizer_attribute(uc,"MIPGap"))
     optimize!(ed)
     # ed = uc
-    constrain_decision_variables(ed, constrain_SOE, constrain_dispatch, constrain_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
+    constrain_decision_variables(ed, constrain_dispatch_by_SOE, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
 
     # update objective function with LOL term and LGEN
     @variables(ed, begin 
         LOL[T] >= 0
         LGEN[T] >= 0
         end)
+
     @objective(ed, Min, 
-        objective_function(ed) + VLOL*sum(LOL[t] for t in T) + VLGEN*sum(LGEN[t] for t in T)
+        objective_function(ed) + sum(LOL[t]*VLOL[t] + LGEN[t]*VLGEN[t] for t in T)
     )
     # @constraint(ed,
     #     sum(LOL[t] for t in T) == 0 
@@ -52,7 +63,7 @@ function construct_economic_dispatch(uc, loads, constrain_SOE::Bool, remove_rese
 end
 
 
-function constrain_decision_variables(model, constrain_SOE::Bool, constrain_dispatch::Bool, constrain_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
+function constrain_decision_variables(model, constrain_dispatch_by_SOE::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
     function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
         T = axes(res_up_var_value)[2]
@@ -84,9 +95,9 @@ function constrain_decision_variables(model, constrain_SOE::Bool, constrain_disp
             :res_dn_dis_var =>  model[:RESDNDIS],
             :res_dn_dis_var_value => value.(model[:RESDNDIS]),
             )
-        constrain_dispatch_variables_according_to_reserve(model, constrain_by_energy, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
+        constrain_dispatch_variables_according_to_reserve(model, constrain_dispatch_by_energy, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
     end 
-    if constrain_SOE
+    if constrain_dispatch_by_SOE
         constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
     end
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
@@ -94,7 +105,7 @@ end
 
 
 
-function constrain_dispatch_variables_according_to_reserve(model, constrain_by_energy, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
+function constrain_dispatch_variables_according_to_reserve(model, constrain_dispatch_by_energy, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
     # Dispatch constrained based on the procured reserve at UC stage
     # Function fixes up to three variable types: :GEN, :CH and :DIS
     function get_variable_base_name(variable)
@@ -176,21 +187,21 @@ function constrain_dispatch_variables_according_to_reserve(model, constrain_by_e
         if get_variable_base_name(var) in gen_logic_group
             # constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], kwargs[:res_dn_var], kwargs[:res_dn_var_value])
             # name_up = Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")
-            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], constrain_by_energy = constrain_by_energy)
-            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], constrain_by_energy = constrain_by_energy, lower_bound = true)
+            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], constrain_by_energy = constrain_dispatch_by_energy)
+            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], constrain_by_energy = constrain_dispatch_by_energy, lower_bound = true)
         elseif get_variable_base_name(var) in dis_logic_group
             # constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], constrain_by_energy = constrain_by_energy)
-            constraint_production_variables(var, var_value, kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value], constrain_by_energy = constrain_by_energy, lower_bound = true)
+            constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], constrain_by_energy = constrain_dispatch_by_energy)
+            constraint_production_variables(var, var_value, kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value], constrain_by_energy = constrain_dispatch_by_energy, lower_bound = true)
         elseif get_variable_base_name(var) in ch_logic_group
             # constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], constrain_by_energy = constrain_by_energy)
-            constraint_production_variables(var, var_value, kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value], constrain_by_energy = constrain_by_energy, lower_bound = true)
+            constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], constrain_by_energy = constrain_dispatch_by_energy)
+            constraint_production_variables(var, var_value, kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value], constrain_by_energy = constrain_dispatch_by_energy, lower_bound = true)
 
         elseif get_variable_base_name(var) in ch_logic_group_2
             # constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], kwargs[:res_up_var], kwargs[:res_up_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], constrain_by_energy = constrain_by_energy)
-            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], constrain_by_energy = constrain_by_energy, lower_bound = true)
+            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], constrain_by_energy = constrain_dispatch_by_energy)
+            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], constrain_by_energy = constrain_dispatch_by_energy, lower_bound = true)
         end
     end
 end
@@ -316,22 +327,22 @@ function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     constrain_dispatch = get(kwargs, :constrain_dispatch, true)
     variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
     remove_variables_from_objective = get(kwargs, :remove_variables_from_objective, false)
-    VLOL = get(kwargs, :VLOL, 1e6)
-    VLGEN = get(kwargs, :VLGEN, 1e6)
+    VLOL = get(kwargs, :VLOL, 1e4)
+    VLGEN = get(kwargs, :VLGEN, 0)
     reference_solution = get(kwargs, :reference_solution, nothing)
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
-    constrain_SOE = get(kwargs, :constrain_SOE, false)
-    constrain_by_energy = get(kwargs, :constrain_by_energy, false)
+    constrain_dispatch_by_SOE = get(kwargs, :constrain_dispatch_by_SOE, false)
+    constrain_dispatch_by_energy = get(kwargs, :constrain_dispatch_by_energy, false)
     # parsing end
     uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
     if !isnothing(reference_solution)
         uc = generate_alternative_model(uc, reference_solution)
     end
     # optimize!(uc)
-    if constrain_SOE
+    if constrain_dispatch_by_SOE
         variables_to_constrain = [GEN]
     end
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_SOE, remove_reserve_constraints, constrain_dispatch, constrain_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_dispatch_by_SOE, remove_reserve_constraints, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
     # save_model_to_file(ed,"ed")
     solutions = Dict()
     

@@ -155,14 +155,14 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :mip_gap => get(kwargs, :mip_gap, 1e-8),
         :max_iterations => get(kwargs, :max_iterations, 100),
         :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
-        :value_reserve => get(kwargs, :value_reserve, 1e-6),
+        # :value_reserve => get(kwargs, :value_reserve, 1e-6),
         :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
-        :VLOL => get(kwargs, :VLOL, 1e6),
-        :VLGEN => get(kwargs, :VLGEN, 1e6),
+        :VLOL => get(kwargs, :VLOL, 1e4),
+        # :VLGEN => get(kwargs, :VLGEN, 0),
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
-        :constrain_SOE => get(kwargs, :constrain_SOE, false),
-        :constrain_by_energy => get(kwargs, :constrain_by_energy, false),
+        :constrain_dispatch_by_SOE => get(kwargs, :constrain_dispatch_by_SOE, false),
+        :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()

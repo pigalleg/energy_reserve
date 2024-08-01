@@ -4,6 +4,7 @@ using CSV
 
 G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
+SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters]
 function to_GMT(df)
   # Convert from GMT to GMT-8
   df.hour = mod.(df.hour .- 9, 8760) .+ 1
@@ -264,10 +265,7 @@ end
 function parquet_to_solution(file_name, file_folder)
   # TODO 1 convert to TerminationStatusCode
   # TODO 2 move to post_processing
-  
-
-  keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar]
-  keys = [k for k in keys if isfile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"))]
+  keys = [k for k in SOLUTION_KEYS if isfile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"))]
   println("reading...")
   aux = [read_parquet_and_convert(joinpath(file_folder, file_name*"_"*string(k)*".parquet")) for k in keys]
   println("...done")

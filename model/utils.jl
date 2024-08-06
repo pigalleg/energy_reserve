@@ -5,7 +5,9 @@ using CSV
 G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
 SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters]
-function to_GMT(df)
+
+# --- start pre_processing ---
+function to_GMT(df) # deprecated
   # Convert from GMT to GMT-8
   df.hour = mod.(df.hour .- 9, 8760) .+ 1
   sort!(df, :hour)
@@ -16,22 +18,19 @@ function generate_input_data(simulation_day, input_location = G_DEFAULT_LOCATION
   # gen_info, fuels, loads_df, gen_variable_info, storage_info = read_data()
   gen_df = pre_process_generators_data(gen_info, fuels)
   gen_df, loads_df, gen_variable_df  = pre_process_load_gen_variable(gen_df, loads_df, pre_process_gen_variable(gen_df, gen_variable_info))
-  
   storage_df = pre_process_storage_data(storage_info)
   random_loads_df = read_random_demand(input_location)
-
-  loads_multi_df, gen_variable_multi_df, random_loads_multi_df = filter_periods(simulation_day, loads_df, gen_variable_df, random_loads_df)
-  return gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df
+  return gen_df, 
+    filter_periods(simulation_day, loads_df),
+    filter_periods(simulation_day, gen_variable_df),
+    storage_df,
+    filter_periods(simulation_day, random_loads_df)
 end
 
-function filter_periods(simulation_day, loads_df, gen_variable_df, random_loads_df)
+function filter_periods(simulation_day, df)
   T_period = (simulation_day*24+1):((simulation_day+1)*24)
   # Filtering data with timeseries according to T_period
-  gen_variable_multi_df = gen_variable_df[in.(gen_variable_df.hour,Ref(T_period)),:]
-  loads_multi_df = loads_df[in.(loads_df.hour,Ref(T_period)),:]
-  random_loads_multi_df =  random_loads_df[in.(random_loads_df.hour,Ref(T_period)),:]
-
-  return loads_multi_df, gen_variable_multi_df, random_loads_multi_df
+  return df[in.(df.hour,Ref(T_period)),:]
 end
 
 function filter_demand(loads_df, random_loads_df, required_reserve)
@@ -39,14 +38,14 @@ function filter_demand(loads_df, random_loads_df, required_reserve)
 end
 
 function read_data(input_location = G_DEFAULT_LOCATION; shift_timezone = false)
-  input_data_location = joinpath(input_location, "uc_data")
-  gen_info = CSV.read(joinpath(input_data_location,"Generators_data.csv"), DataFrame)
-  fuels = CSV.read(joinpath(input_data_location,"Fuels_data.csv"), DataFrame)
-  loads = CSV.read(joinpath(input_data_location,"Demand.csv"), DataFrame)
-  gen_variable = CSV.read(joinpath(input_data_location,"Generators_variability.csv"), DataFrame)
-  storage_info = CSV.read(joinpath(input_data_location,"Storage_data.csv"), DataFrame)
+  input_uc_data_location = joinpath(input_location, "uc")
+  gen_info = CSV.read(joinpath(input_uc_data_location,"Generators_data.csv"), DataFrame)
+  fuels = CSV.read(joinpath(input_uc_data_location,"Fuels_data.csv"), DataFrame)
+  loads = CSV.read(joinpath(input_uc_data_location,"Demand.csv"), DataFrame)
+  gen_variable = CSV.read(joinpath(input_uc_data_location,"Generators_variability.csv"), DataFrame)
+  storage_info = CSV.read(joinpath(input_uc_data_location,"Storage_data.csv"), DataFrame)
 
-  # Rename all columns to lowercase (by convention)
+  # rename all columns to lowercase (by convention)
   for f in [gen_info, fuels, loads, gen_variable, storage_info]
       rename!(f,lowercase.(names(f)))
   end
@@ -56,8 +55,6 @@ function read_data(input_location = G_DEFAULT_LOCATION; shift_timezone = false)
   end
   return gen_info, fuels, loads, identity.(gen_variable), storage_info
 end
-
-
 
 function pre_process_generators_data(gen_info,  fuels)
   # Keep columns relevant to our UC model
@@ -102,7 +99,6 @@ function pre_process_storage_data(storage_info)
   return df
 end
 
-
 function pre_process_load_gen_variable(gen_df, loads_df, gen_variable)
   # tranfers negative demand to generation
   filter = loads_df.demand.<0
@@ -141,8 +137,28 @@ function pre_process_gen_variable(gen_df, gen_variable_info)
 end
 
 function read_random_demand(input_location = G_DEFAULT_LOCATION)
-  return CSV.read(joinpath(input_location, "demand", "random_demand.csv"), DataFrame)
+  return CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
 end
+
+function read_demand_scenarios(input_location = G_DEFAULT_LOCATION)
+  return CSV.read(joinpath(input_location, G_UC_DATA, "scenarios", "scenarios_demand.csv"), DataFrame)
+end
+
+function read_probability_scenarios(input_location = G_DEFAULT_LOCATION)
+  return CSV.read(joinpath(input_location, G_UC_DATA, "scenarios", "scenarios_probability.csv"), DataFrame)
+end
+
+function read_parquet_and_convert(file)
+  columns_to_symbol = [:configuration, :iteration]
+  println(file)
+  out = DataFrame(Parquet2.Dataset(file); copycols=false)
+  for k in intersect(columns_to_symbol, propertynames(out))
+    out[!, k] = Symbol.(out[!, k])
+  end
+  return out
+end
+
+# --- end pre_processing ---
 
 function generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
   configs = (
@@ -252,16 +268,6 @@ function solution_to_parquet(s, file_name, file_folder)
     Parquet2.writefile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"), change_type(change_type(v, Symbol, string), TerminationStatusCode, string))
   end
   println("...done")
-end
-
-function read_parquet_and_convert(file)
-  columns_to_symbol = [:configuration, :iteration]
-  println(file)
-  out = DataFrame(Parquet2.Dataset(file); copycols=false)
-  for k in intersect(columns_to_symbol, propertynames(out))
-    out[!, k] = Symbol.(out[!, k])
-  end
-  return out
 end
 
 function parquet_to_solution(file_name, file_folder)

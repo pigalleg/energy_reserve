@@ -171,6 +171,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
         required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
         random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
+        
         # config = Dict(k => merge(v, add_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
         config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)[k])
         k_reference = get_reference_configuration(k, configurations)

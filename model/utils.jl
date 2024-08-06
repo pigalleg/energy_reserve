@@ -5,7 +5,7 @@ using CSV
 G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
 SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters]
-
+G_UC_DATA = "uc"
 # --- start pre_processing ---
 function to_GMT(df) # deprecated
   # Convert from GMT to GMT-8
@@ -38,7 +38,7 @@ function filter_demand(loads_df, random_loads_df, required_reserve)
 end
 
 function read_data(input_location = G_DEFAULT_LOCATION; shift_timezone = false)
-  input_uc_data_location = joinpath(input_location, "uc")
+  input_uc_data_location = joinpath(input_location, G_UC_DATA)
   gen_info = CSV.read(joinpath(input_uc_data_location,"Generators_data.csv"), DataFrame)
   fuels = CSV.read(joinpath(input_uc_data_location,"Fuels_data.csv"), DataFrame)
   loads = CSV.read(joinpath(input_uc_data_location,"Demand.csv"), DataFrame)
@@ -140,12 +140,16 @@ function read_random_demand(input_location = G_DEFAULT_LOCATION)
   return CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
 end
 
-function read_demand_scenarios(input_location = G_DEFAULT_LOCATION)
+function read_demand_scenarios(input_location)
   return CSV.read(joinpath(input_location, G_UC_DATA, "scenarios", "scenarios_demand.csv"), DataFrame)
 end
 
-function read_probability_scenarios(input_location = G_DEFAULT_LOCATION)
+function read_probability_scenarios(input_location)
   return CSV.read(joinpath(input_location, G_UC_DATA, "scenarios", "scenarios_probability.csv"), DataFrame)
+end
+
+function generate_scenarios_data(simulation_day, input_location = G_DEFAULT_LOCATION)
+  return filter_periods(simulation_day, read_demand_scenarios(input_location)), read_probability_scenarios(input_location)
 end
 
 function read_parquet_and_convert(file)

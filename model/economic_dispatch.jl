@@ -26,12 +26,15 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool,
     T, __ = create_time_sets(loads)
     VLOL = convert_to_indexed_vector(VLOL, length(T))
     VLGEN = convert_to_indexed_vector(VLGEN, length(T))
-    ed = JuMP.copy(uc)
-    set_optimizer(ed, Gurobi.Optimizer)
-    set_optimizer_attribute(ed, "OutputFlag", 0)
-    set_optimizer_attribute(ed, "MIPGap", get_optimizer_attribute(uc,"MIPGap"))
-    optimize!(ed)
-    # ed = uc
+    
+    # ed, reference_map = copy_model(uc)
+    # ed = JuMP.copy(uc)
+    # set_optimizer(ed, Gurobi.Optimizer)
+    # set_optimizer_attribute(ed, "OutputFlag", 0)
+    # set_optimizer_attribute(ed, "MIPGap", get_optimizer_attribute(uc,"MIPGap"))
+    # optimize!(ed)
+
+    ed = uc # pointer, uc object will change
     constrain_decision_variables(ed, constrain_dispatch_by_SOE, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
 
     # update objective function with LOL term and LGEN
@@ -300,18 +303,11 @@ function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
     if get(kwargs, :save_constraints_status, false) # deprecated
         save_constraints_status(ed, string(get(kwargs, :save_constraints_status_for_demand, nothing)))
     end
-    solution = get_solution(ed)
-    if haskey(kwargs,:enriched_solution)
-        if kwargs[:enriched_solution] == true
-            println("done")
-            return enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
-        end
-    end
     println("done")
-    return solution
+    return get_model_solution(ed, gen_df, loads, gen_variable; kwargs...)
 end
 
-function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
+function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; kwargs...)
     # Parsing arguments...
     remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, true)
     max_iterations = get(kwargs, :max_iterations, NB_ITERATIONS)
@@ -325,7 +321,8 @@ function solve_economic_dispatch(gen_df, loads, gen_variable; kwargs...)
     constrain_dispatch_by_SOE = get(kwargs, :constrain_dispatch_by_SOE, false)
     constrain_dispatch_by_energy = get(kwargs, :constrain_dispatch_by_energy, false)
     # parsing end
-    uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
+    # uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
+    
     if !isnothing(reference_solution)
         uc = generate_alternative_model(uc, reference_solution)
     end

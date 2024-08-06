@@ -178,18 +178,16 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         if !isnothing(k_reference) & alternative_solution # if reference_solution is added, both uc and ed are will be solved with alternative model
             config = merge((reference_solution = s_uc[(day,k_reference)],), config)
         end
-        
-        s_uc[(day,k)] = solve_unit_commitment(
+        uc = solve_unit_commitment(
             gen_df,
             loads_multi_df,
             gen_variable_multi_df;
             config...
         )
-        # if string(k) ==  "base_ramp_storage_envelopes_up_0_2_dn_0_2"
-        #    config[:save_constraints_status_for_demand] = :demand_38
-        # end
-
-        s_ed[(day,k)] = solve_economic_dispatch(
+        
+        s_uc[(day,k)] = get_model_solution(uc, gen_df, loads_multi_df, gen_variable_multi_df; config...)
+        s_ed[(day,k)] = solve_economic_dispatch_get_solution(
+            uc,
             gen_df,
             random_loads_multi_df,
             gen_variable_multi_df;

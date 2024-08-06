@@ -623,8 +623,11 @@ function generate_alternative_model(model, reference_solution)
 end
 
 function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
-    storage = nothing
-    storage_envelopes = false
+    storage = get(kwargs, :storage, nothing)
+    storage_envelopes = get(kwargs, :storage_envelopes, false)
+    ramp_constraints = get(kwargs, :ramp_constraints, false)
+    reserve = get(kwargs, :reserve, nothing)
+    energy_reserve = get(kwargs, :energy_reserve, nothing)
     storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
     μ_up = get(kwargs, :μ_up, 1)
     μ_dn = get(kwargs, :μ_dn, 1)
@@ -635,40 +638,28 @@ function construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
 
     println("Constructing UC...")
     uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
-    #TODO: modify this part to format arg = get(kwargs, key, default)
-    if haskey(kwargs,:storage)
+    if !isnothing(storage)
         println("Adding storage...")
-        storage = kwargs[:storage]
-        if haskey(kwargs,:storage_envelopes)
-            if kwargs[:storage_envelopes]
-                storage_envelopes = true
-            end
-        end
         add_storage(uc, storage, loads, gen_df)
     end
-    if haskey(kwargs,:ramp_constraints)
-        if kwargs[:ramp_constraints] == true
-            println("Adding ramp constraints...")   
-            add_ramp_constraints(uc, loads, gen_df)
-        end
+    if ramp_constraints
+        println("Adding ramp constraints...")   
+        add_ramp_constraints(uc, loads, gen_df)
     end
-    if haskey(kwargs,:reserve)
+    if !isnothing(reserve)
         println("Adding reserve constraints...")
-        add_reserve_constraints(uc, kwargs[:reserve], loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE)
+        add_reserve_constraints(uc, reserve, loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE)
     end
-    if haskey(kwargs,:energy_reserve)
+    if !isnothing(energy_reserve)
         println("Adding energy reserve constraints...")
-        add_energy_reserve_constraints(uc, kwargs[:energy_reserve], loads, gen_df, storage, storage_link_constraint)
+        add_energy_reserve_constraints(uc, energy_reserve, loads, gen_df, storage, storage_link_constraint)
     end
     # println("...done")
     return uc
 end
 
-
-
 function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     reference_solution =  get(kwargs, :reference_solution, nothing)
-    enriched_solution = get(kwargs, :enriched_solution, true)
     uc = construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     # relax_integrality(uc)
     # include("./debugging_ignore.jl")
@@ -682,9 +673,7 @@ function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
         @infiltrate
         # list = get_conflicting_constraints(uc)
     end
-    solution = get_solution(uc)
-    if enriched_solution #TODO: remove enriched_solution flag so it is by default
-        return enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...) #TODO: remove kwargs 
-    end
-    return solution
+    return uc
 end
+
+

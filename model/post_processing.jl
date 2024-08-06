@@ -61,7 +61,7 @@ function get_solution_variables(model)
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
-function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
+function enrich_dfs(solution, gen_df, loads, gen_variable, storage)
     #TODO: deal with missing values
     # Curtailment calculation
     # out = Dict(pairs(solution[[:objective_value, :termination_status]]))
@@ -71,8 +71,7 @@ function enrich_dfs(solution, gen_df, loads, gen_variable; kwargs...)
     out[:generation_parameters] = get_generation_parameters(gen_df)
     
     data = copy(gen_df[!,FIELD_FOR_ENRICHING]) # data for enriching
-    if haskey(kwargs, :storage)
-        storage = kwargs[:storage]
+    if !isnothing(storage)
         append!(data, storage[!,FIELD_FOR_ENRICHING] )
         out[:storage] = get_enriched_storage(solution, data)
         out[:storage_parameters] = get_storage_parameters(storage)
@@ -192,4 +191,13 @@ end
 function get_storage_parameters(storage)
     parameters_to_get = [:existing_cap_mw, :max_energy_mwh, :charge_efficiency, :discharge_efficiency]
     return rename(storage[!,union(FIELD_FOR_ENRICHING, parameters_to_get)],[:existing_cap_mw, :max_energy_mwh] .=> [:P_max_MW, :SOE_max_MWh])
+end
+
+function get_model_solution(model, gen_df, loads, gen_variable; config...)
+    # Model is either UC or ED
+    if get(config, :enriched_solution, true)
+        return get_solution(model)
+    else
+        return enrich_dfs(get_solution(model), gen_df, loads, gen_variable, get(config, :storage, nothing)) #TODO: remove kwargs
+    end
 end

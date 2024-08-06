@@ -135,7 +135,7 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
         1-COMMIT[i, t] >= sum(SHUT[i, tt] for tt in intersect(T, (t-gen_df[gen_df.r_id .== i,:down_time][1]):t))
     )
 
-    # 3. Commitment state
+    # 3. Start up/down logic
     @constraint(model, CommitmentStatus[i in G_thermal, t in T_red],
         COMMIT[i,t+1] - COMMIT[i,t] == START[i,t+1] - SHUT[i,t+1]
     )
@@ -190,7 +190,6 @@ function add_storage(model, storage, loads, gen_df)
     )
     @constraint(model, DischargeLogic[s in S, t in T],
         DIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-M[s,t])
-
     )
     
     # Storage constraints
@@ -671,7 +670,6 @@ function solve_unit_commitment(gen_df, loads, gen_variable; kwargs...)
     reference_solution =  get(kwargs, :reference_solution, nothing)
     enriched_solution = get(kwargs, :enriched_solution, true)
     uc = construct_unit_commitment(gen_df, loads, gen_variable; kwargs...)
-
     # relax_integrality(uc)
     # include("./debugging_ignore.jl")
     # set_optimizer_attribute(model, "OutputFlag", 1)

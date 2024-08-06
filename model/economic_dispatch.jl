@@ -1,10 +1,11 @@
 using JuMP
 using Gurobi
 using DataFrames
+# using Revise
 include("./unit_commitment.jl")
 include("./post_processing.jl")
 include("../debugging_ignore.jl")
-
+# __revise_mode__ = :eval
 COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, GEN, CH, DIS, ResUpRequirement, ResDnRequirement = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :GEN, :CH, :DIS, :ResUpRequirement, :ResDnRequirement 
 ITERATION = :iteration
 DEMAND = :demand
@@ -46,11 +47,13 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool,
     #     sum(LOL[t] for t in T) == 0 
     # )
     # Update supply-demand balance expression
+    # Update of SupplyDemand constraint is performed within the solve_economic_dispatch's loop
     SupplyDemand = ed[:SupplyDemand]
     remove_variable_constraint(ed, :SupplyDemand, false)
     @expression(ed, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t] - LGEN[t]
     )
+
     # Remove SOE's circular constraints
     remove_variable_constraint(ed, :SOEFinal)
 
@@ -63,24 +66,12 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool,
 end
 
 
-function constrain_decision_variables(model, constrain_dispatch_by_SOE::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] ) # :RESUP, :RESDN, :RESUPCH, :RESDNCH, :RESUPDIS, :RESDNDIS
-    function normalize_reserve_variables(res_up_var_value, res_dn_var_value)
-        # Normalization to match ResUpRequirement and ResDnRequirement lower bounds
-        T = axes(res_up_var_value)[2]
-        RESUP_lower_bounds = [constraint_object(model[ResUpRequirement][t]).set.lower for t in T]
-        RESDN_lower_bounds = [constraint_object(model[ResDnRequirement][t]).set.lower for t in T]
-        res_up_var_value_normalized  = res_up_var_value./sum(Array(res_up_var_value), dims = 1).*transpose(RESUP_lower_bounds)
-        res_dn_var_value_normalized  = res_dn_var_value./sum(Array(res_dn_var_value), dims = 1).*transpose(RESDN_lower_bounds)
-        return res_up_var_value_normalized, res_dn_var_value_normalized
-    end
+function constrain_decision_variables(model, constrain_dispatch_by_SOE::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] )
     variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
     SOEUP_value = value.(model[:SOEUP])
     SOEDN_value = value.(model[:SOEDN])
     if constrain_dispatch & haskey(model,RESUP)
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
-        # res_up_var, res_up_var_value = (model[RESUP], value.(model[RESUP]))
-        # res_dn_var, res_dn_var_value = (model[RESDN], value.(model[RESDN]))
-        # res_up_var_value, res_dn_var_value = normalize_reserve_variables(res_up_var_value, res_dn_var_value)
         kwargs = Dict(
             :res_up_var => model[:RESUP],
             :res_up_var_value => value.(model[:RESUP]),
@@ -306,7 +297,7 @@ function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
     if !is_solved_and_feasible(ed)
         @infiltrate
     end
-    if get(kwargs, :save_constraints_status, false)
+    if get(kwargs, :save_constraints_status, false) # deprecated
         save_constraints_status(ed, string(get(kwargs, :save_constraints_status_for_demand, nothing)))
     end
     solution = get_solution(ed)

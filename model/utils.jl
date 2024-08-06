@@ -38,7 +38,7 @@ function filter_demand(loads_df, random_loads_df, required_reserve)
   return transform(random_loads_df, Not(:hour) .=> (x -> clamp.(x, loads_df.demand .- required_reserve.reserve_down_MW, loads_df.demand .+ required_reserve.reserve_up_MW)) .=> Not(:hour))
 end
 
-function read_data(input_location = G_DEFAULT_LOCATION)
+function read_data(input_location = G_DEFAULT_LOCATION; shift_timezone = false)
   input_data_location = joinpath(input_location, "uc_data")
   gen_info = CSV.read(joinpath(input_data_location,"Generators_data.csv"), DataFrame)
   fuels = CSV.read(joinpath(input_data_location,"Fuels_data.csv"), DataFrame)
@@ -50,8 +50,10 @@ function read_data(input_location = G_DEFAULT_LOCATION)
   for f in [gen_info, fuels, loads, gen_variable, storage_info]
       rename!(f,lowercase.(names(f)))
   end
-  to_GMT(gen_variable)
-  to_GMT(loads)
+  if shift_timezone
+    to_GMT(gen_variable)
+    to_GMT(loads)
+  end
   return gen_info, fuels, loads, identity.(gen_variable), storage_info
 end
 

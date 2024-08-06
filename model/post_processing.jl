@@ -57,7 +57,7 @@ function get_solution(model)
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
@@ -101,7 +101,7 @@ function get_enriched_energy_reserve(solution, data)
 end
 
 function get_enriched_reserve(solution, data)
-    return leftjoin(
+    aux = leftjoin(
         innerjoin(
             rename(solution.RESUP, :value => :reserve_up_MW),
             rename(solution.RESDN, :value => :reserve_down_MW),
@@ -110,6 +110,17 @@ function get_enriched_reserve(solution, data)
         data[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
+    if haskey(solution, :RESUPDIS)
+        aux = outerjoin(
+            aux,
+            rename(solution.RESUPDIS, :value => :reserve_discharge_up_MW),
+            rename(solution.RESUPCH, :value => :reserve_charge_up_MW),
+            rename(solution.RESDNDIS, :value => :reserve_discharge_down_MW),
+            rename(solution.RESDNCH, :value => :reserve_charge_down_MW),
+            on = [:r_id, :hour],
+        )
+    end
+    return aux
 end
 
 function get_enriched_storage(solution, data)

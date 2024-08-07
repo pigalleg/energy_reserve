@@ -2,7 +2,7 @@ using JuMP
 using Gurobi
 using DataFrames
 # using Revise
-include("./unit_commitment.jl")
+include("./unit_commitment/unit_commitment.jl")
 include("./post_processing.jl")
 include("../debugging_ignore.jl")
 # __revise_mode__ = :eval

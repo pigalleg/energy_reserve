@@ -2,6 +2,7 @@ include("./model/utils.jl")
 include("./model/economic_dispatch.jl")
 include("./notebooks/plotting.jl")
 include("./notebooks/processing.jl")
+using Infiltrator
 # __revise_mode__ = :eval
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 function plot_results(solution)
@@ -163,6 +164,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_dispatch_by_SOE => get(kwargs, :constrain_dispatch_by_SOE, false),
         :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
+        :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
@@ -171,7 +173,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
         required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
         random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
-        scenarios_demand, scenarios_probability = generate_scenarios_data(day, input_folder)
+        scenarios = generate_scenarios_data(day, input_folder)
         # config = Dict(k => merge(v, add_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
         config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)[k])
         k_reference = get_reference_configuration(k, configurations)
@@ -182,7 +184,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         uc = solve_unit_commitment(
             gen_df,
             loads_multi_df,
-            gen_variable_multi_df;
+            gen_variable_multi_df,
+            scenarios;
             config...
         )
         

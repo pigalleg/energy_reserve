@@ -41,10 +41,14 @@ function create_storage_sets(storage)
   return storage.r_id
 end
 
-function create_scenarios_sets(stochastic, scenarios_probability)
-  if !stochastic
-      return ["scenario_0"]
+function create_scenarios_sets(scenarios_probability)
+    return scenarios_probability.scenario[1:100] # assumes that
+end
+
+function convert_to_indexed_vector(value, T)
+  if value isa Number
+      return Dict(T .=> fill(value, length(T)))
   else
-      return scenarios_probability.scenario # assumes that
+      return Dict(T .=> value)
   end
 end

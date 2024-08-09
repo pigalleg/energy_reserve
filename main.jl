@@ -1,8 +1,8 @@
+using Infiltrator
 include("./model/utils.jl")
 include("./model/economic_dispatch.jl")
 include("./notebooks/plotting.jl")
 include("./notebooks/processing.jl")
-using Infiltrator
 # __revise_mode__ = :eval
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 function plot_results(solution)

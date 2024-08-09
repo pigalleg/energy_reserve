@@ -149,7 +149,7 @@ function read_probability_scenarios(input_location)
 end
 
 function generate_scenarios_data(simulation_day, input_location = G_DEFAULT_LOCATION)
-  return Dict(:demand => filter_periods(simulation_day, read_demand_scenarios(input_location)), :probability=> read_probability_scenarios(input_location))
+  return (demand = filter_periods(simulation_day, read_demand_scenarios(input_location)), probability = read_probability_scenarios(input_location))
 end
 
 function read_parquet_and_convert(file)

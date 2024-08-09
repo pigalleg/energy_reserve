@@ -13,19 +13,12 @@ NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
 function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
-    function convert_to_indexed_vector(value, length)
-        if value isa Number
-            return Dict(T .=> fill(value, length))
-        else
-            return Dict(T .=> value)
-        end
-    end
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
     T, __ = create_time_sets(loads)
-    VLOL = convert_to_indexed_vector(VLOL, length(T))
-    VLGEN = convert_to_indexed_vector(VLGEN, length(T))
+    VLOL = convert_to_indexed_vector(VLOL, T)
+    VLGEN = convert_to_indexed_vector(VLGEN, T)
     
     # ed, reference_map = copy_model(uc)
     # ed = JuMP.copy(uc)
@@ -42,7 +35,6 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool,
         LOL[T] >= 0
         LGEN[T] >= 0
         end)
-
     @objective(ed, Min, 
         objective_function(ed) + sum(LOL[t]*VLOL[t] + LGEN[t]*VLGEN[t] for t in T)
     )

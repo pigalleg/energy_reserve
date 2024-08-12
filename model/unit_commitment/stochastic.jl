@@ -4,7 +4,7 @@ include("../utils.jl")
 include("../post_processing.jl")
 include("./utils.jl")
 
-function unit_commitment(gen_df, loads, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
+function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
     # model = direct_model(Gurobi.Optimizer(GRB_ENV ))
     prob = scenarios.probability
     demand = scenarios.demand
@@ -16,7 +16,7 @@ function unit_commitment(gen_df, loads, gen_variable, scenarios, mip_gap, VLOL =
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)
     G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
-    T, T_red = create_time_sets(loads)
+    T, T_red = create_time_sets(demand)
     Σ = create_scenarios_sets(prob)
     VLOL = convert_to_indexed_vector(VLOL, T)
     VLGEN = convert_to_indexed_vector(VLGEN, T)

@@ -33,8 +33,8 @@ function filter_periods(simulation_day, df)
   return df[in.(df.hour,Ref(T_period)),:]
 end
 
-function filter_demand(loads_df, random_loads_df, required_reserve)
-  return transform(random_loads_df, Not(:hour) .=> (x -> clamp.(x, loads_df.demand .- required_reserve.reserve_down_MW, loads_df.demand .+ required_reserve.reserve_up_MW)) .=> Not(:hour))
+function filter_demand(expected_load, loads_to_filter, required_reserve)
+  return transform(loads_to_filter, Not(:hour) .=> (x -> clamp.(x, expected_load.demand .- required_reserve.reserve_down_MW, expected_load.demand .+ required_reserve.reserve_up_MW)) .=> Not(:hour))
 end
 
 function read_data(input_location = G_DEFAULT_LOCATION; shift_timezone = false)
@@ -171,7 +171,7 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           # storage = storage_df,
           # reserve = required_reserve,
           # energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           # storage_envelopes = false
       ),
       base_ramp = (
@@ -179,7 +179,7 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           # storage = storage_df,
           # reserve = required_reserve,
           # energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           # storage_envelopes = false
       ),
       base_ramp_reserve = (
@@ -187,7 +187,7 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           # storage = storage_df,
           reserve = required_reserve,
           # energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           # storage_envelopes = false
       ),
       base_ramp_energy_reserve = (
@@ -195,7 +195,7 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           # storage = storage_df,
           # reserve = required_reserve,
           energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           # storage_envelopes = false
       ),
       base_ramp_storage = (
@@ -203,7 +203,7 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           storage = storage_df,
           # reserve = required_reserve,
           # energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           # storage_envelopes = false
       ),
       base_ramp_storage_reserve = (
@@ -211,7 +211,7 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           storage = storage_df,
           reserve = required_reserve,
           # energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           # storage_envelopes = false
       ),
       base_ramp_storage_envelopes = (
@@ -219,21 +219,21 @@ function generate_configurations(storage_df, required_reserve, required_energy_r
           storage = storage_df,
           reserve = required_reserve,
           # energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           storage_envelopes = true
       ),
       base_ramp_storage_energy_reserve = (
           ramp_constraints = true,
           storage = storage_df,
           energy_reserve = required_energy_reserve,
-          enriched_solution = true,
+          # enriched_solution = true,
           storage_envelopes = false,
       ),
       base_ramp_storage_energy_reserve_cumulated = (
           ramp_constraints = true,
           storage = storage_df,
           energy_reserve = required_energy_reserve_cumulated,
-          enriched_solution = true,
+          # enriched_solution = true,
           storage_envelopes = false,
       ),
   )
@@ -245,14 +245,14 @@ function generate_envelope_configuration(key::Symbol, μ_up, μ_dn, storage_df, 
       :ramp_constraints => true,
       :storage => storage_df,
       :reserve => required_reserve,
-      :enriched_solution => true,
+      # :enriched_solution => true,
       :storage_envelopes => true,
       :μ_up => μ_up,
       :μ_dn => μ_dn)
   )
 end
 
-function generate_configuration(key::Symbol, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
+function generate_configuration(key::Symbol, storage_df, required_reserve, required_energy_reserve = nothing, required_energy_reserve_cumulated = nothing)
   envelope_config_key = match(r"base_ramp_storage_envelopes_up_(\w+)_dn_(\w+)", string(key))
   if envelope_config_key != nothing
     μ_up = parse(Float64, replace(envelope_config_key[1], "_" => "."))

@@ -5,6 +5,7 @@ include("../utils.jl")
 include("../post_processing.jl")
 
 function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mip_gap, storage, ramp_constraints; kwargs...)
+    println("Constructing DUC...")
     reserve = get(kwargs, :reserve, nothing)
     energy_reserve = get(kwargs, :energy_reserve, nothing)
     storage_envelopes = get(kwargs, :storage_envelopes, false)
@@ -14,7 +15,8 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     VRESERVE = get(kwargs, :value_reserve, 1e-6)
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
     thermal_reserve = get(kwargs, :thermal_reserve, false)
-    uc = unit_commitment(gen_df, loads, gen_variable, mip_gap)
+    
+    uc = DUC(gen_df, loads, gen_variable, mip_gap)
     if !isnothing(storage)
         println("Adding storage...")
         add_storage(uc, storage, loads, gen_df)
@@ -34,8 +36,9 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     return uc
 end
 
-function construct_stochastic_unit_commitment(gen_df, loads, gen_variable, mip_gap, storage, ramp_constraints, scenarios)
-    uc = unit_commitment(gen_df, loads, gen_variable, scenarios, mip_gap)
+function construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, VLOL, VLGEN)
+    println("Constructing SUC...")
+    uc = SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL, VLGEN)
     if !isnothing(storage)
         println("Adding storage...")
         add_storage(uc, storage, scenarios)
@@ -53,16 +56,14 @@ function construct_unit_commitment(gen_df, loads, gen_variable, scenarios; kwarg
     ramp_constraints = get(kwargs, :ramp_constraints, false)
     mip_gap = get(kwargs, :mip_gap, 1e-8)
     stochastic = get(kwargs, :stochastic, false)
-    println("Constructing UC...")
     if !stochastic
         return construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mip_gap, storage, ramp_constraints; kwargs...)
-        
     else
-        return construct_stochastic_unit_commitment(gen_df, loads, gen_variable, mip_gap, storage, ramp_constraints, scenarios)
+        return construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, get(kwargs, :VLOL, 1e4), get(kwargs, :VLGEN, 0))
     end
 end
 
-function solve_unit_commitment(gen_df, loads, gen_variable, scenarios; kwargs...)
+function solve_unit_commitment(gen_df, loads, gen_variable, scenarios = nothing; kwargs...)
     reference_solution =  get(kwargs, :reference_solution, nothing)
     uc = construct_unit_commitment(gen_df, loads, gen_variable, scenarios; kwargs...)
     # relax_integrality(uc)

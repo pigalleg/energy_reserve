@@ -4,7 +4,7 @@ include("../utils.jl")
 include("../post_processing.jl")
 include("./utils.jl")
 
-function unit_commitment(gen_df, loads, gen_variable, mip_gap)
+function DUC(gen_df, loads, gen_variable, mip_gap)
     # model = direct_model(Gurobi.Optimizer(GRB_ENV ))
     
     model = Model(Gurobi.Optimizer)
@@ -46,7 +46,6 @@ function unit_commitment(gen_df, loads, gen_variable, mip_gap)
     @objective(model, Min,
         model[:OPEX]
     )
-
     # Demand balance constraint (supply must = demand in all time periods)
     # Expression is constructed to reuse during ED
     @expression(model, SupplyDemand[t in T],

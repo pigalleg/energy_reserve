@@ -1,8 +1,10 @@
 using Infiltrator
 include("./model/utils.jl")
+include("./model/unit_commitment/unit_commitment.jl")
 include("./model/economic_dispatch.jl")
 include("./notebooks/plotting.jl")
 include("./notebooks/processing.jl")
+
 # __revise_mode__ = :eval
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
 function plot_results(solution)
@@ -44,50 +46,84 @@ function generate_multipliers_configurations(μs)
     return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
 end
 
-G_N = 7 # 68
+G_day = 7 # 68
 G_RESERVE = 0.1
-G_MIP_GAP = 1e-8
 # G_REMOVE_RESERVE_CONSTRAINTS = true
 # G_CONSTRAIN_DISPATCH = true
-G_MAX_ITERATIONS = 100
-G_VRESERVE = 1e-6
-G_REMOVE_VARIABLES_FROM_OBJECTIVE = false
+# G_MAX_ITERATIONS = 100
+# G_VRESERVE = 1e-6
+# G_REMOVE_VARIABLES_FROM_OBJECTIVE = false
 
-
-gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N)
-# random_loads_multi_df = random_loads_multi_df[!, [:hour, :demand, :demand_53]]
-# random_loads_multi_df.demand_21 .= random_loads_multi_df.demand_21*0.5
-required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
 
 config = (
-    mip_gap = G_MIP_GAP,
     ramp_constraints = true,
-    storage = storage_df,
-    reserve = required_reserve,
+    # storage = storage_df,
+    # reserve = required_reserve,
     # energy_reserve = required_energy_reserve,
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
-    storage_envelopes = true,
-    μ_up = 1,
-    μ_dn = 1,
+    # storage_envelopes = true,
+    # μ_up = 1,
+    # μ_dn = 1,
 )
-add_config = (
-    # remove_reserve_constraints = G_REMOVE_RESERVE_CONSTRAINTS,
-    max_iterations = G_MAX_ITERATIONS,
-    # constrain_dispatch = G_CONSTRAIN_DISPATCH,
-    value_reserve = G_VRESERVE,
-    remove_variables_from_objective = G_REMOVE_VARIABLES_FROM_OBJECTIVE
-)
-config = merge(config, add_config)
 
-function uc()
-    solution  = solve_unit_commitment(
+# function load_configuration(storage_df, required_reserve)
+#     config = (
+#         mip_gap = G_MIP_GAP,
+#         ramp_constraints = true,
+#         storage = storage_df,
+#         # reserve = required_reserve,
+#         # energy_reserve = required_energy_reserve,
+#         # energy_reserve = required_energy_reserve_cumulated,
+#         enriched_solution = true,
+#         # storage_envelopes = true,
+#         # μ_up = 1,
+#         # μ_dn = 1,
+#     )
+#     return config
+# end
+
+function load_deterministic_data(day, input_folder)
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day,input_folder)
+    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
+    random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
+    
+    return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
+end
+
+function load_scenarios(day, input_folder, loads_multi_df, required_reserve)
+    scenarios = generate_scenarios_data(day, input_folder)
+    scenarios = (demand = filter_demand(loads_multi_df, scenarios.demand, required_reserve), probability = scenarios.probability)
+    return scenarios
+end
+
+function duc(;kwargs...)
+    input_folder = get(kwargs, :input_folder, "./input/base_case")
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(G_day, input_folder)
+    return solve_unit_commitment(
         gen_df,
         loads_multi_df,
         gen_variable_multi_df;
+        storage = storage_df,
+        # reserve = required_reserve,
         config...
         )
-    return solution
+end
+
+function suc(;kwargs...)
+    input_folder = get(kwargs, :input_folder, "./input/base_case")
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(G_day, input_folder)
+    scenarios = load_scenarios(input_folder, loads_multi_df, required_reserve)
+    return solve_unit_commitment(
+        gen_df,
+        loads_multi_df,
+        gen_variable_multi_df,
+        scenarios;
+        storage = storage_df,
+        stochastic = true,
+        config...
+        )
+
 end
 
 function ed()
@@ -111,7 +147,7 @@ function ed_multi_demand(iteration_key)
 end
 
 function uc_net_demand()
-    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, "./input/net_demand_case")
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_day, "./input/net_demand_case")
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
     solution  = solve_unit_commitment(
         gen_df,
@@ -123,7 +159,7 @@ function uc_net_demand()
 end
 
 function ed_multi_demand_net_demand()
-    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_N, "./input/net_demand_case")
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(G_day, "./input/net_demand_case")
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
     solution  = solve_economic_dispatch(
         gen_df,
@@ -141,11 +177,6 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         return i > 1 ?  getindex(configurations, i-1) : nothing
     end
 
-    # function get_reference_configuration(k, configurations)
-    #     i = first(findall(x->x == k , configurations))
-    #     return i < length(configurations) ?  getindex(configurations, i+1) : nothing
-    # end
-
     input_folder = get(kwargs, :input_folder, "./input/base_case")
     output_folder = get(kwargs, :output_folder, "./output")
     write = get(kwargs, :write, true)
@@ -153,7 +184,6 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     alternative_solution = get(kwargs, :alternative_solution, false)
 
     add_config = Dict(
-        :mip_gap => get(kwargs, :mip_gap, 1e-8),
         :max_iterations => get(kwargs, :max_iterations, 100),
         :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
         # :value_reserve => get(kwargs, :value_reserve, 1e-6),
@@ -164,28 +194,24 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_dispatch_by_SOE => get(kwargs, :constrain_dispatch_by_SOE, false),
         :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
-        :stochastic => get(kwargs, :stochastic, false),
+        # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
     s_ed = Dict()
     for day in days, k in configurations
-        gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
-        required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
-        random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
-        scenarios = generate_scenarios_data(day, input_folder)
-        # config = Dict(k => merge(v, add_config) for (k,v) in generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated))
-        config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)[k])
-        k_reference = get_reference_configuration(k, configurations)
+
+        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder)
+        config = merge(add_config, generate_configuration(k, storage_df, required_reserve)[k])
         
+        k_reference = get_reference_configuration(k, configurations)
         if !isnothing(k_reference) & alternative_solution # if reference_solution is added, both uc and ed are will be solved with alternative model
             config = merge((reference_solution = s_uc[(day,k_reference)],), config)
         end
         uc = solve_unit_commitment(
             gen_df,
             loads_multi_df,
-            gen_variable_multi_df,
-            scenarios;
+            gen_variable_multi_df;
             config...
         )
         

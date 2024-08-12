@@ -42,7 +42,7 @@ function create_storage_sets(storage)
 end
 
 function create_scenarios_sets(scenarios_probability)
-    return scenarios_probability.scenario[1:100] # assumes that
+    return scenarios_probability.scenario
 end
 
 function convert_to_indexed_vector(value, T)

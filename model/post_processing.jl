@@ -196,8 +196,8 @@ end
 function get_model_solution(model, gen_df, loads, gen_variable; config...)
     # Model is either UC or ED
     if get(config, :enriched_solution, true)
-        return get_solution(model)
+        return enrich_dfs(get_solution(model), gen_df, loads, gen_variable, get(config, :storage, nothing)) 
     else
-        return enrich_dfs(get_solution(model), gen_df, loads, gen_variable, get(config, :storage, nothing)) #TODO: remove kwargs
+        return get_solution(model)#TODO: remove kwargs 
     end
 end

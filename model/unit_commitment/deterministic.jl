@@ -386,10 +386,10 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
         SOEDN[S, T_incr] >= 0
     end)
     @constraint(model, SOEUpEvol[s in S, t in T],
-        SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_up*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_up*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
+        SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_dn*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_dn*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
     ) #TODO: add delta_T
     @constraint(model, SOEDnEvol[s in S, t in T], 
-        SOEDN[s,t]  == SOEDN[s,t-1] + (CH[s,t] - μ_dn*RESUPCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_dn*RESUPDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
+        SOEDN[s,t]  == SOEDN[s,t-1] + (CH[s,t] - μ_up*RESUPCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_up*RESUPDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
     ) #TODO: add delta_T
     
     # SOEUP_T_initial = SOE_T_initial

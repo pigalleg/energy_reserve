@@ -57,7 +57,7 @@ function get_solution(model)
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
@@ -134,6 +134,14 @@ function get_enriched_storage(solution, data)
             aux,
             rename(solution.SOEUP, :value => :envelope_up_MWh),
             rename(solution.SOEDN, :value => :envelope_down_MWh),
+            on = [:r_id, :hour]
+        )
+    end
+    if haskey(solution, :SOEUP_EC) & haskey(solution, :SOEDN_EC)
+        aux = innerjoin(
+            aux,
+            rename(solution.SOEUP_EC, :value => :envelope_up_MWh),
+            rename(solution.SOEDN_EC, :value => :envelope_down_MWh),
             on = [:r_id, :hour]
         )
     end

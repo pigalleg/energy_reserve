@@ -12,7 +12,7 @@ DEMAND = :demand
 NB_ITERATIONS = 10000
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
+function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -28,7 +28,7 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool,
     # optimize!(ed)
 
     ed = uc # pointer, uc object will change
-    constrain_decision_variables(ed, constrain_dispatch_by_SOE, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
+    constrain_decision_variables(ed, constrain_SOE_by_envelopes, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
 
     # update objective function with LOL term and LGEN
     @variables(ed, begin 
@@ -61,10 +61,9 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_SOE::Bool,
 end
 
 
-function constrain_decision_variables(model, constrain_dispatch_by_SOE::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] )
+function constrain_decision_variables(model, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN] )
     variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
-    SOEUP_value = value.(model[:SOEUP])
-    SOEDN_value = value.(model[:SOEDN])
+    SOEUP_value, SOEDN_value = generate_envelopes(model)
     if constrain_dispatch & haskey(model,RESUP)
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
         kwargs = Dict(
@@ -81,10 +80,13 @@ function constrain_decision_variables(model, constrain_dispatch_by_SOE::Bool, co
             :res_dn_dis_var =>  model[:RESDNDIS],
             :res_dn_dis_var_value => value.(model[:RESDNDIS]),
             )
+        # variable extractions must be executeed before modification of the model
         constrain_dispatch_variables_according_to_reserve(model, constrain_dispatch_by_energy, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
     end 
-    if constrain_dispatch_by_SOE
+    if constrain_SOE_by_envelopes
         constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
+        @expression(model, SOEUP_EC, SOEUP_value) # added to recover them as output
+        @expression(model, SOEDN_EC, SOEDN_value)
     end
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
 end
@@ -192,15 +194,68 @@ function constrain_dispatch_variables_according_to_reserve(model, constrain_disp
     end
 end
 
+
+function generate_envelopes(model)
+    # SOEUP_value = value.(model[:SOEUP])
+    # SOEDN_value = value.(model[:SOEDN])
+    CH = model[:CH]
+    DIS = model[:DIS]
+    RESDNCH = model[:RESDNCH]
+    RESDNDIS = model[:RESDNDIS]
+    RESUPCH = model[:RESUPCH]
+    RESUPDIS = model[:RESUPDIS]
+    S = axes(CH)[1]
+    T = axes(CH)[2]
+    SOE = model[:SOE]
+    T_incr = axes(SOE)[2]
+
+    SOE_constraint_list = [constraint_object.(model[:SOEEvol][s,T[1]]).func for s in S]
+    η_ch =-map(coefficient, SOE_constraint_list, Array(CH[:,T[1]]))
+    inv_η_dis = map(coefficient, SOE_constraint_list, Array(DIS[:,T[1]]))
+    
+    # We assume that μ=μ(t), but independent of storage unit. We use therefore the first storage to determine the value: η_ch[1]
+    SOEUp_constraint_list  = [constraint_object.(model[:SOEUpEvol][S[1],t]).func for t in T]
+    μ_dn = -map(coefficient, SOEUp_constraint_list, Array(RESDNCH[S[1],:]))/η_ch[1]
+    SOEDN_constraint_list  = [constraint_object.(model[:SOEDnEvol][S[1],t]).func for t in T]
+    μ_up =map(coefficient, SOEDN_constraint_list, Array(RESUPCH[S[1],:]))./η_ch[1]
+
+    SOEPUP_value = +Array(value.(CH)).*η_ch + (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis).* μ_dn' # approach 3
+    SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) # For T[1]-1 no reserves are activated
+    SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2)
+    
+    # SOEPUP_value = (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis).* μ_dn' #approach 1&2
+    # SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) #  #approach 1&2
+    # SOEPUP_value = Array(value.(SOE))  + cumsum(SOEPUP_value; dims = 2) # approach 1
+    # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2) # approach 2
+
+
+    SOEPDN_value = -Array(value.(DIS)).*inv_η_dis -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up'# approach 3
+    SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value)
+    SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2)
+
+    # SOEPDN_value = -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up' #approach 1&2
+    # SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value) # approach 1&2
+    # SOEPDN_value = Array(value.(SOE))  + cumsum(SOEPDN_value; dims = 2) # approach 1
+    # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2) # approach 2
+
+    SOEMax_value = hcat(Array(normalized_rhs.(model[:SOEMax]))[:,1], Array(normalized_rhs.(model[:SOEMax]))) # adding extra column for T[1]-1
+    SOEMin_value = hcat(Array(normalized_rhs.(model[:SOEMin]))[:,1], Array(normalized_rhs.(model[:SOEMin])))
+    
+    SOEPUP_value = min.(SOEPUP_value, SOEMax_value)
+    SOEPDN_value = max.(SOEPDN_value, SOEMin_value)
+    return Containers.DenseAxisArray(SOEPUP_value, S, T_incr), Containers.DenseAxisArray(SOEPDN_value, S, T_incr)
+    
+end
+
 function constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
     println("Constraining SOE...")
     SOE = model[:SOE]
     S = axes(SOE)[1]
-    T = axes(SOE)[2]
-    @constraint(model, SOEEnvelopeUP[s in S, t in T],
+    T_incr = axes(SOE)[2]
+    @constraint(model, SOEEnvelopeUP[s in S, t in T_incr],
         SOE[s,t] <= SOEUP_value[s,t]
     )
-    @constraint(model, SOEEnvelopeDN[s in S, t in T],
+    @constraint(model, SOEEnvelopeDN[s in S, t in T_incr],
         SOE[s,t] >= SOEDN_value[s,t]
     )
 end
@@ -310,7 +365,7 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
     VLGEN = get(kwargs, :VLGEN, 0)
     reference_solution = get(kwargs, :reference_solution, nothing)
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
-    constrain_dispatch_by_SOE = get(kwargs, :constrain_dispatch_by_SOE, false)
+    constrain_SOE_by_envelopes = get(kwargs, :constrain_SOE_by_envelopes, false)
     constrain_dispatch_by_energy = get(kwargs, :constrain_dispatch_by_energy, false)
     # parsing end
     # uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
@@ -319,10 +374,10 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
         uc = generate_alternative_model(uc, reference_solution)
     end
     # optimize!(uc)
-    if constrain_dispatch_by_SOE
+    if constrain_SOE_by_envelopes
         variables_to_constrain = [GEN]
     end
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_dispatch_by_SOE, remove_reserve_constraints, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_SOE_by_envelopes, remove_reserve_constraints, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
     # save_model_to_file(ed,"ed")
     solutions = Dict()
     

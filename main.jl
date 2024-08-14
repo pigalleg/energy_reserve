@@ -192,7 +192,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         # :VLGEN => get(kwargs, :VLGEN, 0),
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
-        :constrain_dispatch_by_SOE => get(kwargs, :constrain_dispatch_by_SOE, false),
+        :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
         # :stochastic => get(kwargs, :stochastic, false),
     )

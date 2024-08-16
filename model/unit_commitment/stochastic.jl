@@ -15,9 +15,15 @@ function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
 
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)
-    G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
-    T, T_red = create_time_sets(demand)
-    Σ = create_scenarios_sets(prob)
+    # G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
+    # T, T_red = create_time_sets(demand)
+    # Σ = create_scenarios_sets(prob)
+    sets = get_sets(gen_df, scenarios)
+    G = sets.G
+    G_thermal = sets.G_thermal
+    T = sets.T
+    Σ = sets.Σ
+
     VLOL = convert_to_indexed_vector(VLOL, T)
     VLGEN = convert_to_indexed_vector(VLGEN, T)
 
@@ -25,16 +31,16 @@ function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
         GEN[G,T,Σ] >= 0     # generation
         LOL[T,Σ] >= 0
         LGEN[T,Σ] >= 0
-        COMMIT[G_thermal,T], Bin # commitment status (Bin=binary)
-        START[G_thermal,T], Bin  # startup decision
-        SHUT[G_thermal,T], Bin   # shutdown decision
+        COMMIT[G_thermal,T,Σ], Bin # commitment status (Bin=binary)
+        START[G_thermal,T,Σ], Bin  # startup decision
+        SHUT[G_thermal,T,Σ], Bin   # shutdown decision
     end)
               
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods
       # TODO: add delta_T
     
-    add_OPEX(model, gen_df, scenarios, VLOL, VLGEN)
+    add_OPEX(model, gen_df, sets, scenarios, VLOL, VLGEN)
     
     @objective(model, Min,  #TODO: move at the end of the constructor
         model[:OPEX]
@@ -47,60 +53,55 @@ function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
         SupplyDemand[t,σ] == demand[demand.hour .== t,σ][1]
     )
 
-    # Capacity constraints 
-    # 1. thermal generators requiring commitment
-    @constraint(model, Cap_thermal_min[g in G_thermal, t in T, σ in Σ], 
-        GEN[g,t,σ] >= COMMIT[g,t]*gen_df[gen_df.r_id .== g, :existing_cap_mw][1]*gen_df[gen_df.r_id .== g, :min_power][1] 
-    ) 
-    @constraint(model, Cap_thermal_max[g in G_thermal, t in T, σ in Σ], 
-        GEN[g,t,σ] <= COMMIT[g,t]*gen_df[gen_df.r_id .== g, :existing_cap_mw][1]
-    ) 
+    add_capacity_constraints(model, gen_df, gen_variable, sets)
+    add_commitment_logic(model, gen_df, sets)
 
-    # 2. non-variable generation not requiring commitment
-    @constraint(model, Cap_nt_nonvar[g in G_nt_nonvar, t in T, σ in Σ], 
-        GEN[g,t,σ] <= gen_df[gen_df.r_id .== g, :existing_cap_mw][1]
-    )
-    # 3. variable generation, accounting for hourly capacity factor
-    # TODO: The way this constraint is declared does not follow general style
-    # Needs to be redefined at each ED
-    @constraint(model, Cap_var[g in 1:nrow(gen_variable), σ in Σ], 
-            GEN[gen_variable[g,:r_id], gen_variable[g,:hour], σ] <= 
-                        gen_variable[g,:cf] *
-                        gen_variable[g,:existing_cap_mw]
-                    )
-
-    # Unit commitment constraints
-    # 1. Minimum up time
-    @constraint(model, Startup[g in G_thermal, t in T],
-        COMMIT[g,t] >= sum(START[g, tt] for tt in intersect(T, (t-gen_df[gen_df.r_id .== g,:up_time][1]):t))
-    )
-
-    # 2. Minimum down time
-    @constraint(model, Shutdown[g in G_thermal, t in T],
-        1-COMMIT[g,t] >= sum(SHUT[g, tt] for tt in intersect(T, (t-gen_df[gen_df.r_id .== g,:down_time][1]):t))
-    )
-
-    # 3. Start up/down logic
-    @constraint(model, CommitmentStatus[g in G_thermal, t in T_red],
-        COMMIT[g,t+1] - COMMIT[g,t] == START[g,t+1] - SHUT[g,t+1]
-    )
+    constrain_to_deterministic(model, :GEN, G_thermal)
+    constrain_to_deterministic(model, :GEN, sets.G_nt_nonvar)
+    constrain_to_deterministic(model, :COMMIT)
+    constrain_to_deterministic(model, :START)
+    constrain_to_deterministic(model, :SHUT)
     return model
 end
 
-function add_OPEX(model, gen_df, scenarios, VLOL, VLGEN)
+function constrain_to_deterministic(model, var_symbol, GG = nothing)
+    var = model[var_symbol]
+    if isnothing(GG)
+        GG = axes(var)[1]
+        subset = ""
+    else
+        subset = "$(minimum(GG))_to_$(maximum(GG))_"
+    end
+    var_d_symbol = Symbol("$(string(var_symbol))_$(subset)d")
+    T = axes(var)[2]
+    Σ = axes(var)[3]
+    model[var_d_symbol] = @variable(model, [GG,T], base_name = string(var_d_symbol))
+    for g in GG, t in T
+        # @constraint(model, [σ in Σ], var[g,t,σ] == model[var_d_symbol][g,t]) # for now we declare anonimous constraints
+        model[Symbol("$(string(var_d_symbol))_constraint")] = @constraint(model, [σ in Σ],
+            var[g,t,σ] == model[var_d_symbol][g,t],
+            base_name = "$(string(var_d_symbol))_constraint")
+    end
+end
+
+function add_OPEX(model, gen_df, sets, scenarios, VLOL, VLGEN)
     prob = scenarios.probability
-    _, G_thermal, __, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
+    G_thermal = sets.G_thermal
+    G_nt_nonvar = sets.G_nt_nonvar
+    G_nonvar = sets.G_nonvar
+    G_var = sets.G_var
+    T = sets.T
+    Σ = sets.Σ
+
     GEN = model[:GEN]
     START = model[:START]
     COMMIT = model[:COMMIT]
     LOL = model[:LOL]
     LGEN = model[:LGEN]
-    T = axes(GEN)[2]
-    Σ = axes(GEN)[3]
 
-    @expression(model, StartupFixedCost,
-        sum(gen_df[gen_df.r_id .== g,:start_cost_per_mw][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*START[g,t] for g in G_thermal for t in T) + 
-        sum(gen_df[gen_df.r_id .== g,:fixed_om_cost_per_mw_per_hour][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*COMMIT[g,t] for g in G_thermal for t in T) + 
+    @expression(model, StartupFixedCost[σ in Σ],
+        sum(gen_df[gen_df.r_id .== g,:start_cost_per_mw][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*START[g,t,σ] for g in G_thermal for t in T) + 
+        sum(gen_df[gen_df.r_id .== g,:fixed_om_cost_per_mw_per_hour][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*COMMIT[g,t,σ] for g in G_thermal for t in T) + 
         sum(gen_df[gen_df.r_id .== g,:fixed_om_cost_per_mw_per_hour][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1] for g in G_nt_nonvar for t in T)
     )
 
@@ -129,21 +130,77 @@ function add_OPEX(model, gen_df, scenarios, VLOL, VLGEN)
     # )
 
     @expression(model, OPEX,
-        model[:StartupFixedCost] +  sum(prob[prob.scenario .== σ,:probability][1]*(model[:OperationalCost][σ] + model[:VLOL][σ] + model[:VLGEN][σ]) for σ in Σ)
+        sum(prob[prob.scenario .== σ,:probability][1]*(model[:StartupFixedCost][σ] + model[:OperationalCost][σ] + model[:VLOL][σ] + model[:VLGEN][σ]) for σ in Σ)
     )
 
 end
 
-function add_storage(model, storage, scenarios)
+function add_capacity_constraints(model, gen_df, gen_variable, sets)
+    G_thermal = sets.G_thermal
+    G_nt_nonvar = sets.G_nt_nonvar
+    T = sets.T
+    Σ = sets.Σ
+    GEN = model[:GEN]
+    COMMIT = model[:COMMIT]
+    
+    @constraint(model, Cap_thermal_min[g in G_thermal, t in T, σ in Σ], 
+        GEN[g,t,σ] >= COMMIT[g,t,σ]*gen_df[gen_df.r_id .== g, :existing_cap_mw][1]*gen_df[gen_df.r_id .== g, :min_power][1] 
+    ) 
+    @constraint(model, Cap_thermal_max[g in G_thermal, t in T, σ in Σ], 
+        GEN[g,t,σ] <= COMMIT[g,t,σ]*gen_df[gen_df.r_id .== g, :existing_cap_mw][1]
+    ) 
+
+    # 2. non-variable generation not requiring commitment
+    @constraint(model, Cap_nt_nonvar[g in G_nt_nonvar, t in T, σ in Σ], 
+        GEN[g,t,σ] <= gen_df[gen_df.r_id .== g, :existing_cap_mw][1]
+    )
+    # 3. variable generation, accounting for hourly capacity factor
+    # TODO: The way this constraint is declared does not follow general style
+    # Needs to be redefined at each ED
+    @constraint(model, Cap_var[g in 1:nrow(gen_variable), σ in Σ], 
+            GEN[gen_variable[g,:r_id], gen_variable[g,:hour], σ] <= 
+                        gen_variable[g,:cf] *
+                        gen_variable[g,:existing_cap_mw]
+                    )
+end
+
+function add_commitment_logic(model, gen_df, sets)
+    G_thermal = sets.G_thermal
+    T = sets.T
+    T_red = sets.T_red
+    Σ = sets.Σ
+    GEN = model[:GEN]
+    COMMIT = model[:COMMIT]
+    START = model[:START]
+    SHUT = model[:SHUT]
+     # 1. Minimum up time
+     @constraint(model, Startup[g in G_thermal, t in T, σ in Σ],
+        COMMIT[g,t,σ] >= sum(START[g,tt,σ] for tt in intersect(T, (t-gen_df[gen_df.r_id .== g,:up_time][1]):t))
+    )
+
+    # 2. Minimum down time
+    @constraint(model, Shutdown[g in G_thermal, t in T, σ in Σ],
+        1-COMMIT[g,t,σ] >= sum(SHUT[g, tt,σ] for tt in intersect(T, (t-gen_df[gen_df.r_id .== g,:down_time][1]):t))
+    )
+
+    # 3. Start up/down logic
+    @constraint(model, CommitmentStatus[g in G_thermal, t in T_red, σ in Σ],
+        COMMIT[g,t+1,σ] - COMMIT[g,t,σ] == START[g,t+1,σ] - SHUT[g,t+1,σ]
+    )
+end
+
+function add_storage(model, storage, scenarios, sets::NamedTuple)
     prob = scenarios.probability
     demand = scenarios.demand
     
     GEN = model[:GEN]
-    T = axes(GEN)[2]
+    T = sets.T
     T_incr = copy(T)
     pushfirst!(T_incr, T_incr[1]-1)
+    Σ = sets.Σ
     S = create_storage_sets(storage)
-    Σ = axes(GEN)[3]
+
+    
     # START = model[:START]
     @variables(model, begin
         CH[S,T,Σ] >= 0
@@ -181,7 +238,6 @@ function add_storage(model, storage, scenarios)
     @constraint(model, SupplyDemandBalance[t in T, σ in Σ], 
         SupplyDemand[t,σ] == demand[demand.hour .== t,σ][1]
     )
-
     # Charging-discharging logic
     @constraint(model, ChargeLogic[s in S, t in T, σ in Σ],
         CH[s,t,σ] <= storage[storage.r_id .== s,:existing_cap_mw][1]*M[s,t,σ]
@@ -211,13 +267,18 @@ function add_storage(model, storage, scenarios)
     @constraint(model, SOEO[s in S, σ in Σ], #TODO: replace by T
         SOE[s,T_incr[1],σ] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
-    @constraint(model, SOEFinal[s in S, σ in Σ],
-        SOE[s,T[end],σ] >= storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
-    )
+    # @constraint(model, SOEFinal[s in S, σ in Σ],
+    #     SOE[s,T[end],σ] >= storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
+    # )
 end
 
-function add_ramp_constraints(model, gen_df, scenarios)
-    G, G_thermal, G_nonthermal, __, ___, ____ = create_generators_sets(gen_df)  
+function add_ramp_constraints(model, gen_df, sets::NamedTuple)
+    # G, G_thermal, G_nonthermal, __, ___, ____ = create_generators_sets(gen_df)  
+    G_thermal = sets.G_thermal
+    G_nonthermal = sets.G_nonthermal
+    T= sets.T
+    T_red= sets.T_red
+    Σ= sets.Σ
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
 
@@ -230,7 +291,7 @@ function add_ramp_constraints(model, gen_df, scenarios)
     
     # for committed thermal units (only created for thermal generators)
     @constraint(model, AuxGen[g in G_thermal, t in T, σ in Σ],
-        GENAUX[g,t,σ] == GEN[g,t,σ] - COMMIT[g,t]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*gen_df[gen_df.r_id .== g,:min_power][1]
+        GENAUX[g,t,σ] == GEN[g,t,σ] - COMMIT[g,t,σ]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*gen_df[gen_df.r_id .== g,:min_power][1]
     )
     
     # Ramp equations for thermal generators (constraining GENAUX)

@@ -46,7 +46,7 @@ function generate_multipliers_configurations(μs)
     return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
 end
 
-G_day = 7 # 68
+G_day = 3 # 68
 G_RESERVE = 0.1
 # G_REMOVE_RESERVE_CONSTRAINTS = true
 # G_CONSTRAIN_DISPATCH = true
@@ -113,7 +113,7 @@ end
 function suc(;kwargs...)
     input_folder = get(kwargs, :input_folder, "./input/base_case")
     gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(G_day, input_folder)
-    scenarios = load_scenarios(input_folder, loads_multi_df, required_reserve)
+    scenarios = load_scenarios(G_day, input_folder, loads_multi_df, required_reserve)
     return solve_unit_commitment(
         gen_df,
         loads_multi_df,
@@ -194,6 +194,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
+        :constraint_dispatch_by_multipliers => get(kwargs, :constraint_dispatch_by_multipliers, false),
         # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])

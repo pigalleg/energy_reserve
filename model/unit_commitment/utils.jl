@@ -27,7 +27,7 @@ function create_generators_sets(gen_df)
   G_nt_nonvar = intersect(G_nonvar, G_nonthermal)
   # Note that G_nt_var = G_var
 
-  # Set of all generators (above are all subsets of this)
+  # Set of all generators (above are all subsets of this)~
   G = gen_df.r_id
 
   return G, G_thermal, G_nonthermal, G_var, G_nonvar, G_nt_nonvar
@@ -35,6 +35,21 @@ end
 
 function create_time_sets(loads)
   return loads.hour, loads.hour[1:end-1]
+end
+
+function get_sets(gen_df, scenarios)
+  G, G_thermal, G_nonthermal, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
+  T, T_red = create_time_sets(scenarios.demand)
+  Σ = create_scenarios_sets(scenarios.probability)
+  return sets = (G = G,
+    G_thermal = G_thermal,
+    G_nonthermal = G_nonthermal,
+    G_var = G_var,
+    G_nonvar = G_nonvar,
+    G_nt_nonvar = G_nt_nonvar,
+    T = T,
+    T_red = T_red,
+    Σ = Σ)
 end
 
 function create_storage_sets(storage)

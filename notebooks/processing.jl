@@ -227,6 +227,7 @@ function calculate_reserve_KPI(s_ed, s_uc, thres =.001)
   # TODO: revise the following ...
   KPI_reserve.required_r_up_MW =   KPI_reserve.required_r_MW.*(KPI_reserve.required_r_MW.>=0)
   KPI_reserve.required_r_dn_MW = -   KPI_reserve.required_r_MW.*(KPI_reserve.required_r_MW.<0)
+  
   KPI_reserve = outerjoin(
     KPI_reserve,
     combine(groupby(s_ed.generation, union(group_by_big, [:hour])), :production_MW => sum => :production_MW),

@@ -41,11 +41,11 @@ function construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, sto
     uc = SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL, VLGEN)
     if !isnothing(storage)
         println("Adding storage...")
-        add_storage(uc, storage, scenarios)
+        add_storage(uc, storage, scenarios, get_sets(gen_df, scenarios)) # TODO: This function is meant to be used within SUC
     end
     if ramp_constraints
         println("Adding ramp constraints...")   
-        add_ramp_constraints(uc, gen_df, scenarios)
+        add_ramp_constraints(uc, gen_df, get_sets(gen_df, scenarios)) # TODO: This function is meant to be used within SUC
     end
     return uc
 end

@@ -168,7 +168,7 @@ function add_storage(model, storage, loads, gen_df)
         SOE[s,T_incr[1]] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
     @constraint(model, SOEFinal[s in S],
-        SOE[s,T[end]] >= storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
+        SOE[s,T[end]] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
 end
 

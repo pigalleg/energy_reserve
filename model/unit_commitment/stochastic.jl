@@ -267,9 +267,9 @@ function add_storage(model, storage, scenarios, sets::NamedTuple)
     @constraint(model, SOEO[s in S, σ in Σ], #TODO: replace by T
         SOE[s,T_incr[1],σ] == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
     )
-    # @constraint(model, SOEFinal[s in S, σ in Σ],
-    #     SOE[s,T[end],σ] >= storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
-    # )
+    @constraint(model, SOEFinal[s in S],
+        sum(prob[prob.scenario .== σ,:probability][1]*SOE[s,T[end],σ] for σ in Σ) == storage[storage.r_id .== s,:initial_energy_proportion][1]*storage[storage.r_id .== s,:max_energy_mwh][1]
+    )
 end
 
 function add_ramp_constraints(model, gen_df, sets::NamedTuple)

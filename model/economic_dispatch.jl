@@ -4,7 +4,7 @@ using DataFrames
 # using Revise
 include("./unit_commitment/unit_commitment.jl")
 include("./post_processing.jl")
-include("../debugging_ignore.jl")
+# include("../debugging_ignore.jl")
 # __revise_mode__ = :eval
 COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, GEN, CH, DIS, ResUpRequirement, ResDnRequirement = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :GEN, :CH, :DIS, :ResUpRequirement, :ResDnRequirement 
 ITERATION = :iteration
@@ -39,16 +39,17 @@ function construct_economic_dispatch(uc, loads, constraint_dispatch_by_multiplie
     T, __ = create_time_sets(loads)
     VLOL = convert_to_indexed_vector(VLOL, T)
     VLGEN = convert_to_indexed_vector(VLGEN, T)
-    
     # ed, reference_map = copy_model(uc)
     # ed = JuMP.copy(uc)
     # set_optimizer(ed, Gurobi.Optimizer)
     # set_optimizer_attribute(ed, "OutputFlag", 0)
     # set_optimizer_attribute(ed, "MIPGap", get_optimizer_attribute(uc,"MIPGap"))
     # optimize!(ed)
+
     ed = uc # pointer, uc object will change
+    add_envelopes_UC(ed)
     constrain_decision_variables(ed, constraint_dispatch_by_multipliers, constrain_SOE_by_envelopes, constrain_dispatch, constrain_dispatch_by_energy, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
-    constraint_SOE_final_to_envelopes(ed) # redundant when constrain_SOE_by_envelopes == true
+    constraint_SOE_final_to_envelopes_UC(ed) # redundant when constrain_SOE_by_envelopes == true
     # update objective function with LOL term and LGEN
     @variables(ed, begin 
         LOL[T] >= 0
@@ -67,10 +68,6 @@ function construct_economic_dispatch(uc, loads, constraint_dispatch_by_multiplie
     @expression(ed, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t] - LGEN[t]
     )
-
-    # Remove SOE's circular constraints
-    # remove_variable_constraint(ed, :SOEFinal)
-
     # By default, (energy) reserve constraints are removed 
     if remove_reserve_constraints
         remove_energy_and_reserve_constraints(ed)
@@ -83,13 +80,14 @@ end
 function constrain_decision_variables(model, constraint_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, constrain_dispatch_by_energy::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN])
     #TODO: split this in multiple functions. Too many arguments.
     variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
+     # envelopes for ED
     SOEUP_value, SOEDN_value = generate_envelopes(model)
     if constrain_dispatch & haskey(model,RESUP)
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
         μ_up, μ_dn = get_multipliers(model)
         if !constraint_dispatch_by_multipliers
-            μ_up = ones(1, length(μ_up))
-            μ_dn = ones(1, length(μ_dn))
+            μ_up = ones(length(μ_up), 1)
+            μ_dn = ones(length(μ_dn), 1)
         end
         kwargs = Dict(
             :res_up_var => model[:RESUP],
@@ -111,8 +109,7 @@ function constrain_decision_variables(model, constraint_dispatch_by_multipliers:
     if constrain_SOE_by_envelopes
         constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
     end
-    @expression(model, SOEUP_EC, SOEUP_value) # added to recover them as output 
-    @expression(model, SOEDN_EC, SOEDN_value)
+    add_envelopes_ED(model, SOEUP_value, SOEDN_value) # to recover it as output
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
 end
 
@@ -188,6 +185,19 @@ function constrain_dispatch_variables_according_to_reserve(model, constrain_disp
     end
 end
 
+function add_envelopes_UC(model)
+    # UC envelopes
+    @expression(model, SOEUP_UC, value.(model[:SOEUP]))
+    @expression(model, SOEDN_UC, value.(model[:SOEDN]))
+end
+
+function add_envelopes_ED(model, SOEUP_value, SOEDN_value)
+    # ED envelopes
+    remove_variable_constraint(model, :SOEUP)
+    @expression(model, SOEUP, SOEUP_value)
+    remove_variable_constraint(model, :SOEDN)
+    @expression(model, SOEDN, SOEDN_value)
+end
 
 function generate_envelopes(model)
     # SOEUP_value = value.(model[:SOEUP])
@@ -212,7 +222,7 @@ function generate_envelopes(model)
     # SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) # For T[1]-1 no reserves are activated
     # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2)
     
-    SOEPUP_value = (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis).* μ_dn' #approach 1&2
+    SOEPUP_value = (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis)#.*μ_dn' #approach 1&2
     SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) #  #approach 1&2
     SOEPUP_value = Array(value.(SOE))  + cumsum(SOEPUP_value; dims = 2) # approach 1
     # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2) # approach 2
@@ -222,7 +232,7 @@ function generate_envelopes(model)
     # SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value)
     # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2)
 
-    SOEPDN_value = -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up' #approach 1&2
+    SOEPDN_value = -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis)#.* μ_up' #approach 1&2
     SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value) # approach 1&2
     SOEPDN_value = Array(value.(SOE))  + cumsum(SOEPDN_value; dims = 2) # approach 1
     # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2) # approach 2
@@ -249,7 +259,7 @@ function constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
     )
 end
 
-function constraint_SOE_final_to_envelopes(model)
+function constraint_SOE_final_to_envelopes_UC(model)
     # it assumes envelopes have been calculateed by this stage
     println("Constraining SOE final to envelopes...")
     SOE = model[:SOE]
@@ -257,10 +267,10 @@ function constraint_SOE_final_to_envelopes(model)
     S = axes(SOE)[1]
     remove_variable_constraint(model, :SOEFinal)
     @constraint(model, SOEFinalDn[s in S],
-        SOE[s,T_incr[end]] >= model[:SOEDN_EC][s,T_incr[end]]
+        SOE[s,T_incr[end]] >= model[:SOEDN_UC][s,T_incr[end]]
     )
     @constraint(model, SOEFinalUp[s in S],
-        SOE[s,T_incr[end]] <= model[:SOEUP_EC][s,T_incr[end]]
+        SOE[s,T_incr[end]] <= model[:SOEUP_UC][s,T_incr[end]]
     )
 end
 
@@ -290,7 +300,7 @@ function remove_energy_and_reserve_constraints(model)
         :ResUpStorageDisMax, :ResDownStorageChMax,
         :ResUpStorageCapacityMax, :ResDownStorageCapacityMax,
         # :D,:U,
-        :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin, :SOEDN, :SOEUP,
+        :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin,#, :SOEDN, :SOEUP,
         # :EnergyResUpThermal, :EnergyResDownThermal, :EnergyResUpRamp, :EnergyResDnRamp,
         # :EnergyResUpZero, :EnergyResDnZero,
         # :EnergyResUpStorage, :EnergyResDownStorage, :EnergyResUpLink, :EnergyResDownLink,

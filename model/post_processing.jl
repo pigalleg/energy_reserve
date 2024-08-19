@@ -83,6 +83,7 @@ function enrich_dfs(solution, gen_df, loads, gen_variable, storage)
         out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
     end
     out[:demand] = get_enriched_demand(solution, loads)
+    # out[:constraints] = get_constraints(solution)
     return NamedTuple(out)
 end
 
@@ -137,14 +138,14 @@ function get_enriched_storage(solution, data)
             on = [:r_id, :hour]
         )
     end
-    if haskey(solution, :SOEUP_EC) & haskey(solution, :SOEDN_EC)
-        aux = innerjoin(
-            aux,
-            rename(solution.SOEUP_EC, :value => :envelope_up_MWh),
-            rename(solution.SOEDN_EC, :value => :envelope_down_MWh),
-            on = [:r_id, :hour]
-        )
-    end
+    # if haskey(solution, :SOEUP_ED) & haskey(solution, :SOEDN_EC) # deprecated
+    #     aux = innerjoin(
+    #         aux,
+    #         rename(solution.SOEUP_ED, :value => :envelope_up_MWh),
+    #         rename(solution.SOEDN_ED, :value => :envelope_down_MWh),
+    #         on = [:r_id, :hour]
+    #     )
+    # end
     return leftjoin(aux, data[!,FIELD_FOR_ENRICHING], on = :r_id)
 end
 
@@ -200,6 +201,20 @@ function get_storage_parameters(storage)
     parameters_to_get = [:existing_cap_mw, :max_energy_mwh, :charge_efficiency, :discharge_efficiency]
     return rename(storage[!,union(FIELD_FOR_ENRICHING, parameters_to_get)],[:existing_cap_mw, :max_energy_mwh] .=> [:P_max_MW, :SOE_max_MWh])
 end
+
+# function get_constraints(solution, data)
+#     aux = data[!,[:r_id]]
+#     if haskey(soution, :DISRESDNDIS)
+#         aux = innerjoin(
+#             rename(solution.DISRESDNDIS, :value => :DISRESDNDIS),
+#             rename(solution.DISRESUPDIS, :value => :DISRESUPDIS),
+#             rename(solution.CHRESDNCH, :value => :CHRESDNCH),
+#             rename(solution.CHRESUPCH, :value => :CHRESUPCH),
+#         on = [:r_id, :hour]
+#     )
+#     end
+#     leftjoin(aux, data[!,FIELD_FOR_ENRICHING], on = :r_id)
+# end
 
 function get_model_solution(model, gen_df, loads, gen_variable; config...)
     # Model is either UC or ED

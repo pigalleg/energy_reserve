@@ -210,7 +210,7 @@ function add_ramp_constraints(model, gen_df)
     )
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
+function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, pointwise_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -300,7 +300,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
         @constraint(model, ResDownStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
             DIS[s,t] - RESDNDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-D[s,t])
         )
-
         @constraint(model, ResUpStorageDisMax[s in S, t in T],
             RESUPDIS[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
         )
@@ -353,7 +352,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
 
         if storage_envelopes
             println("Adding storage envelopes...")
-            add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
+            add_envelope_constraints(model, loads, storage, μ_up, μ_dn, pointwise_envelopes)
         end
     end
     # (4) Overall reserve requirements
@@ -366,7 +365,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
 
 end
 
-function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
+function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, pointwise = false)
     S = create_storage_sets(storage)
     # RESUP = model[:RESUP]
     # RESDN = model[:RESDN] # test what happens if removed.
@@ -385,13 +384,21 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn)
         SOEUP[S, T_incr] >= 0
         SOEDN[S, T_incr] >= 0
     end)
-    @constraint(model, SOEUpEvol[s in S, t in T],
-        SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_dn*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_dn*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
-    ) #TODO: add delta_T
-    @constraint(model, SOEDnEvol[s in S, t in T], 
-        SOEDN[s,t]  == SOEDN[s,t-1] + (CH[s,t] - μ_up*RESUPCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_up*RESUPDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
-    ) #TODO: add delta_T
-    
+    if !pointwise
+        @constraint(model, SOEUpEvol[s in S, t in T],
+            SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_dn*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_dn*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
+        ) #TODO: add delta_T
+        @constraint(model, SOEDnEvol[s in S, t in T], 
+            SOEDN[s,t]  == SOEDN[s,t-1] + (CH[s,t] - μ_up*RESUPCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] + μ_up*RESUPDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
+        ) #TODO: add delta_T
+    else
+        @constraint(model, SOEUpEvol[s in S, t in T],
+            SOEUP[s,t]  == SOE[s,t] + μ_dn*RESDNCH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] + μ_dn*RESDNDIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
+        ) 
+        @constraint(model, SOEDnEvol[s in S, t in T], 
+            SOEDN[s,t]  == SOE[s,t] - μ_up*RESUPCH[s,t]*storage[storage.r_id .== s,:charge_efficiency][1] - μ_up*RESUPDIS[s,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
+        )
+    end
     # SOEUP_T_initial = SOE_T_initial
     @constraint(model, SOEUP_0[s in S],
         SOEUP[s,T_incr[1]] == SOE[s,T_incr[1]]

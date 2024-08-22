@@ -46,8 +46,9 @@ function generate_multipliers_configurations(μs)
     return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
 end
 
-G_day = 3 # 68
+G_day = 7 # 68
 G_RESERVE = 0.1
+G_input_folder = "./input/base_case_increased_storage_energy_v3.1"
 # G_REMOVE_RESERVE_CONSTRAINTS = true
 # G_CONSTRAIN_DISPATCH = true
 # G_MAX_ITERATIONS = 100
@@ -57,12 +58,10 @@ G_RESERVE = 0.1
 
 config = (
     ramp_constraints = true,
-    # storage = storage_df,
-    # reserve = required_reserve,
     # energy_reserve = required_energy_reserve,
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
-    # storage_envelopes = true,
+    storage_envelopes = true,
     # μ_up = 1,
     # μ_dn = 1,
 )
@@ -98,22 +97,25 @@ function load_scenarios(day, input_folder, loads_multi_df, required_reserve)
 end
 
 function duc(;kwargs...)
-    input_folder = get(kwargs, :input_folder, "./input/base_case")
-    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(G_day, input_folder)
+    input_folder = get(kwargs, :input_folder, G_input_folder)
+    day = get(kwargs, :day, G_day)
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder)
     return solve_unit_commitment(
         gen_df,
         loads_multi_df,
         gen_variable_multi_df;
         storage = storage_df,
-        # reserve = required_reserve,
+        reserve = required_reserve,
+        pointwise_envelopes = true,
         config...
         )
 end
 
 function suc(;kwargs...)
-    input_folder = get(kwargs, :input_folder, "./input/base_case")
-    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(G_day, input_folder)
-    scenarios = load_scenarios(G_day, input_folder, loads_multi_df, required_reserve)
+    input_folder = get(kwargs, :input_folder, G_input_folder)
+    day = get(kwargs, :day, G_day)
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder)
+    scenarios = load_scenarios(day, input_folder, loads_multi_df, required_reserve)
     return solve_unit_commitment(
         gen_df,
         loads_multi_df,
@@ -195,6 +197,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
         :constraint_dispatch_by_multipliers => get(kwargs, :constraint_dispatch_by_multipliers, false),
+        :pointwise_envelopes => get(kwargs, :pointwise_envelopes, false)
         # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])

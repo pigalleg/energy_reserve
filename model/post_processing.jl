@@ -57,7 +57,7 @@ function get_solution(model)
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
@@ -110,13 +110,23 @@ function get_enriched_reserve(solution, data)
         data[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
-    if haskey(solution, :RESUPDIS)
+    # if haskey(solution, :RESUPDIS)
+    #     aux = outerjoin(
+    #         aux,
+    #         rename(solution.RESUPDIS, :value => :reserve_discharge_up_MW),
+    #         rename(solution.RESUPCH, :value => :reserve_charge_up_MW),
+    #         rename(solution.RESDNDIS, :value => :reserve_discharge_down_MW),
+    #         rename(solution.RESDNCH, :value => :reserve_charge_down_MW),
+    #         on = [:r_id, :hour],
+    #     )
+    # end
+    if haskey(solution, :CHRESDNCH)
         aux = outerjoin(
             aux,
-            rename(solution.RESUPDIS, :value => :reserve_discharge_up_MW),
-            rename(solution.RESUPCH, :value => :reserve_charge_up_MW),
-            rename(solution.RESDNDIS, :value => :reserve_discharge_down_MW),
-            rename(solution.RESDNCH, :value => :reserve_charge_down_MW),
+            rename(solution.CHRESDNCH, :value => :chargue_reserve_max_MW),
+            rename(solution.CHRESUPCH, :value => :chargue_reserve_min_MW),
+            rename(solution.DISRESUPDIS, :value => :discharge_reserve_max_MW),
+            rename(solution.DISRESDNDIS, :value => :discharge_reserve_min_MW),
             on = [:r_id, :hour],
         )
     end

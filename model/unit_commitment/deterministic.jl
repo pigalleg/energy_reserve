@@ -210,7 +210,7 @@ function add_ramp_constraints(model, gen_df)
     )
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, pointwise_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
+function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, naive_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
     _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
@@ -352,7 +352,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
 
         if storage_envelopes
             println("Adding storage envelopes...")
-            add_envelope_constraints(model, loads, storage, μ_up, μ_dn, pointwise_envelopes)
+            add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_envelopes)
         end
     end
     # (4) Overall reserve requirements
@@ -365,7 +365,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
 
 end
 
-function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, pointwise = false)
+function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_envelopes = false)
     S = create_storage_sets(storage)
     # RESUP = model[:RESUP]
     # RESDN = model[:RESDN] # test what happens if removed.
@@ -384,7 +384,7 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, pointwise
         SOEUP[S, T_incr] >= 0
         SOEDN[S, T_incr] >= 0
     end)
-    if !pointwise
+    if !naive_envelopes
         @constraint(model, SOEUpEvol[s in S, t in T],
             SOEUP[s,t]  == SOEUP[s,t-1] + (CH[s,t] + μ_dn*RESDNCH[s,t])*storage[storage.r_id .== s,:charge_efficiency][1] - (DIS[s,t] - μ_dn*RESDNDIS[s,t])/storage[storage.r_id .== s,:discharge_efficiency][1]
         ) #TODO: add delta_T

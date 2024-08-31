@@ -15,7 +15,7 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     VRESERVE = get(kwargs, :value_reserve, 1e-6)
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
     thermal_reserve = get(kwargs, :thermal_reserve, false)
-    pointwise_envelopes = get(kwargs, :pointwise_envelopes, false)
+    naive_envelopes = get(kwargs, :naive_envelopes, false)
     
     uc = DUC(gen_df, loads, gen_variable, mip_gap)
     if !isnothing(storage)
@@ -28,7 +28,7 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     end
     if !isnothing(reserve) 
         println("Adding reserve constraints...")
-        add_reserve_constraints(uc, reserve, loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, pointwise_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE)
+        add_reserve_constraints(uc, reserve, loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, naive_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE)
     end
     if !isnothing(energy_reserve)
         println("Adding energy reserve constraints...")

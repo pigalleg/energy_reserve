@@ -83,7 +83,7 @@ config = (
 # end
 
 function load_deterministic_data(day, input_folder)
-    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day,input_folder)
+    gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
     required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     
@@ -106,7 +106,7 @@ function duc(;kwargs...)
         gen_variable_multi_df;
         storage = storage_df,
         reserve = required_reserve,
-        pointwise_envelopes = true,
+        naive_envelopes = true,
         config...
         )
 end
@@ -197,7 +197,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
         :constraint_dispatch_by_multipliers => get(kwargs, :constraint_dispatch_by_multipliers, false),
-        :pointwise_envelopes => get(kwargs, :pointwise_envelopes, false)
+        :naive_envelopes => get(kwargs, :naive_envelopes, false)
         # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])

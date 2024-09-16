@@ -121,6 +121,7 @@ function constrain_dispatch_variables_according_to_reserve(model, constrain_disp
     end
 
     function constraint_production_variables(var, var_value, res_up_var, res_up_var_value; constrain_by_energy = false, lower_bound = false)
+    # constrain_by_energy deprecated
         G = intersect(axes(res_up_var)[1], axes(var)[1])
         T = intersect(axes(res_up_var)[2], axes(var)[2])
         name = Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")

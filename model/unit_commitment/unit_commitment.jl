@@ -37,12 +37,12 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     return uc
 end
 
-function construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, VLOL, VLGEN)
+function construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, expected_min_SOE, VLOL, VLGEN)
     println("Constructing SUC...")
     uc = SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL, VLGEN)
     if !isnothing(storage)
         println("Adding storage...")
-        add_storage(uc, storage, scenarios, get_sets(gen_df, scenarios)) # TODO: This function is meant to be used within SUC
+        add_storage(uc, storage, scenarios, get_sets(gen_df, scenarios), expected_min_SOE) # TODO: This function is meant to be used within SUC
     end
     if ramp_constraints
         println("Adding ramp constraints...")   
@@ -60,7 +60,7 @@ function construct_unit_commitment(gen_df, loads, gen_variable, scenarios; kwarg
     if !stochastic
         return construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mip_gap, storage, ramp_constraints; kwargs...)
     else
-        return construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, get(kwargs, :VLOL, 1e4), get(kwargs, :VLGEN, 0))
+        return construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, get(kwargs, :expected_min_SOE, false), get(kwargs, :VLOL, 1e4), get(kwargs, :VLGEN, 0))
     end
 end
 

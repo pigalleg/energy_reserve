@@ -326,29 +326,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             remove_variable_constraint(model, :ResDownStorageChLogic)
             remove_variable_constraint(model, :ResDownStorageDisLogic)
             
-            # remove_variable_constraint(model, :ResUpStorageDisCapacityMax)
-            # @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
-            #     RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
-            # )
-            # remove_variable_constraint(model, :ResDownStorageChCapacityMax)
-            # @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
-            #     RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
-            # )
         end
-
-        # @constraint(model, ResUpStorage[s in S, t in T],
-        #     RESUP[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
-        # )
-        # @constraint(model, ResDownStorage[s in S, t in T],
-        #     RESDN[s,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
-        # )
-
-        # @constraint(model, ResUpStorageCapacityMax[s in S, t in T],
-        #     RESUP[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t] + CH[s,t]
-        # )
-        # @constraint(model, ResDownStorageCapacityMax[s in S, t in T],
-        #     RESDN[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t] + DIS[s,t]
-        # )
 
         if storage_envelopes
             println("Adding storage envelopes...")
@@ -367,8 +345,6 @@ end
 
 function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_envelopes = false)
     S = create_storage_sets(storage)
-    # RESUP = model[:RESUP]
-    # RESDN = model[:RESDN] # test what happens if removed.
     RESUPCH = model[:RESUPCH]
     RESDNCH = model[:RESDNCH]
     RESUPDIS = model[:RESUPDIS]
@@ -494,6 +470,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, 
 end
 
 function add_MGA_constraints(model, reference_solution)
+    #deprecated
   
     reference_objective_function = objective_value(model)
     

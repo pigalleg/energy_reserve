@@ -2,7 +2,7 @@ using Infiltrator
 include("./model/utils.jl")
 include("./model/unit_commitment/unit_commitment.jl")
 include("./model/economic_dispatch.jl")
-include("./notebooks/plotting.jl")
+# include("./notebooks/plotting.jl")
 include("./notebooks/processing.jl")
 
 # __revise_mode__ = :eval
@@ -197,8 +197,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
-        :constrain_dispatch_by_energy => get(kwargs, :constrain_dispatch_by_energy, false),
-        :constraint_dispatch_by_multipliers => get(kwargs, :constraint_dispatch_by_multipliers, false),
+        :constrain_dispatch_by_multipliers => get(kwargs, :constrain_dispatch_by_multipliers, false),
         :naive_envelopes => get(kwargs, :naive_envelopes, false)
         # :stochastic => get(kwargs, :stochastic, false),
     )

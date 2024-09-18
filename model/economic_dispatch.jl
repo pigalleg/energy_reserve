@@ -374,7 +374,7 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
     remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, true)
     max_iterations = get(kwargs, :max_iterations, NB_ITERATIONS)
     constrain_dispatch = get(kwargs, :constrain_dispatch, true)
-    variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
+    variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN])
     remove_variables_from_objective = get(kwargs, :remove_variables_from_objective, false)
     VLOL = get(kwargs, :VLOL, 1e4)
     VLGEN = get(kwargs, :VLGEN, 0)

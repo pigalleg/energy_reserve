@@ -198,7 +198,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         :constrain_dispatch_by_multipliers => get(kwargs, :constrain_dispatch_by_multipliers, false),
-        :naive_envelopes => get(kwargs, :naive_envelopes, false)
+        :naive_envelopes => get(kwargs, :naive_envelopes, false),
+        # :variables_to_constrain => get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
         # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])

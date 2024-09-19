@@ -62,7 +62,7 @@ config = (
     # energy_reserve = required_energy_reserve,
     # energy_reserve = required_energy_reserve_cumulated,
     enriched_solution = true,
-    storage_envelopes = true,
+    
     # μ_up = 1,
     # μ_dn = 1,
 )
@@ -85,9 +85,8 @@ config = (
 
 function load_deterministic_data(day, input_folder, reserve = G_RESERVE)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
-    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
+    required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
-    
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
 end
 
@@ -106,8 +105,11 @@ function duc(;kwargs...)
         loads_multi_df,
         gen_variable_multi_df;
         storage = storage_df,
-        reserve = required_reserve,
+        # reserve = required_reserve,
+        energy_reserve = generate_energy_reserves(required_reserve),
         # naive_envelopes = true,
+        storage_link_constraint = true,
+        storage_envelopes = false,
         config...
         )
 end

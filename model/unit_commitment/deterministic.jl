@@ -14,9 +14,18 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
 
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)
+    sets = get_sets(gen_df, loads)
+    G = sets.G
+    G_thermal = sets.G_thermal
+    G_var = sets.G_var
+    G_nonvar = sets.G_nonvar
+    G_nt_nonvar = sets.G_nt_nonvar
+    T = sets.T
+    T_red = sets.T_red
+    # G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
+    # T, T_red = create_time_sets(loads)
 
-    G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
-    T, T_red = create_time_sets(loads)
+
     
     @variables(model, begin
         GEN[G, T]  >= 0     # generation
@@ -96,12 +105,15 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
     return model
 end
 
-function add_storage(model, storage, loads, gen_df)
-    G, G_thermal, __, G_var, G_nonvar, ___ = create_generators_sets(gen_df)
-    T, ____ =  create_time_sets(loads)
+function add_storage(model, storage, loads, gen_df, sets)
+    T = sets.T
+    # G, G_thermal, __, G_var, G_nonvar, ___ = create_generators_sets(gen_df)
+    # T, ____ =  create_time_sets(loads)
+    
     T_incr = copy(T)
     pushfirst!(T_incr, T_incr[1]-1)
     S = create_storage_sets(storage)
+    
     GEN = model[:GEN]
     # START = model[:START]
     @variables(model, begin
@@ -172,13 +184,19 @@ function add_storage(model, storage, loads, gen_df)
     )
 end
 
-function add_ramp_constraints(model, gen_df)
-    G, G_thermal, G_nonthermal, __, ___, ____ = create_generators_sets(gen_df)
+function add_ramp_constraints(model, gen_df, sets)
+    G = sets.G
+    G_thermal = sets.G_thermal
+    G_nonthermal = sets.G_nonthermal
+    T = sets.T
+    T_red = sets.T_red
+
+    # G, G_thermal, G_nonthermal, __, ___, ____ = create_generators_sets(gen_df)
 
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
-    T = axes(GEN)[2]
-    T_red = T[1:end-1]
+    # T = axes(GEN)[2]
+    # T_red = T[1:end-1]
     # New auxiliary variable GENAUX for generation above the minimum output level
     @variable(model, GENAUX[G_thermal, T] >= 0)
     
@@ -210,11 +228,62 @@ function add_ramp_constraints(model, gen_df)
     )
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, naive_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64})
+function add_storage_reserve_power_constraints(model, storage, sets)
+    T = sets.T
+    S = create_storage_sets(storage)
+    # S = create_storage_sets(storage)
+    # SOE = model[:SOE]
+    CH = model[:CH]
+    DIS = model[:DIS]
+    # RESUP = model[:RESUP]
+    # RESDN = model[:RESDN]
+    @variables(model, begin
+        RESUPDIS[S, T] >= 0
+        RESUPCH[S, T] >= 0
+        RESDNCH[S, T] >= 0
+        RESDNDIS[S, T] >= 0
+        U[S,T], Bin
+        D[S,T], Bin
+    end)
+
+    # Reserve up logic - power constraints
+    @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
+        RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
+    )
+    @constraint(model, ResUpStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
+        RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*U[s,t]
+    )
+    @constraint(model, ResUpStorageChCapacityMax[s in S, t in T],
+        RESUPCH[s,t] <= + CH[s,t]
+    )
+    @constraint(model, ResUpStorageChLogic[s in S, t in T], #comment this block to obtain Brunninx
+        CH[s,t] - RESUPCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-U[s,t])
+    )
+    # Reserve down logic - power constraints
+    @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
+        RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
+    )
+    @constraint(model, ResDownStorageChLogic[s in S, t in T], #comment this block to obtain Brunninx
+        RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*D[s,t]
+    )
+    @constraint(model, ResDownStorageDisCapacityMax[s in S, t in T],
+        RESDNDIS[s,t] <= + DIS[s,t]
+    )
+    @constraint(model, ResDownStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
+        DIS[s,t] - RESDNDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-D[s,t])
+    )
+end
+
+function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, naive_envelopes::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64}, sets::NamedTuple)
+    G_thermal = sets.G_thermal
+    T = sets.T
+    T_red = sets.T_red
+
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
-    _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
-    T, T_red =  create_time_sets(loads)
+    # _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
+    # T, T_red =  create_time_sets(loads)
+    
     G_reserve = G_thermal
     if !isnothing(storage)
         S = create_storage_sets(storage)
@@ -261,45 +330,16 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     if !isnothing(storage)
         S = create_storage_sets(storage)
         SOE = model[:SOE]
-        CH = model[:CH]
-        DIS = model[:DIS]
-        # RESUP = model[:RESUP]
-        # RESDN = model[:RESDN]
-        @variables(model, begin
-            RESUPDIS[S, T] >= 0
-            RESUPCH[S, T] >= 0
-            RESDNCH[S, T] >= 0
-            RESDNDIS[S, T] >= 0
-            U[S,T], Bin
-            D[S,T], Bin
-        end)
+        # CH = model[:CH]
+        # DIS = model[:DIS]
+       
+        add_storage_reserve_power_constraints(model, storage, sets)
+        RESUPDIS = model[:RESUPDIS]
+        RESUPCH = model[:RESUPCH]
+        RESDNCH = model[:RESDNCH]
+        RESDNDIS = model[:RESDNDIS]
 
-        # Reserve up logic
-        @constraint(model, ResUpStorageDisCapacityMax[s in S, t in T],
-            RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - DIS[s,t]
-        )
-        @constraint(model, ResUpStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
-            RESUPDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*U[s,t]
-        )
-        @constraint(model, ResUpStorageChCapacityMax[s in S, t in T],
-            RESUPCH[s,t] <= + CH[s,t]
-        )
-        @constraint(model, ResUpStorageChLogic[s in S, t in T], #comment this block to obtain Brunninx
-            CH[s,t] - RESUPCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-U[s,t])
-        )
-        # Reserve down logic
-        @constraint(model, ResDownStorageChCapacityMax[s in S, t in T],
-            RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1] - CH[s,t]
-        )
-        @constraint(model, ResDownStorageChLogic[s in S, t in T], #comment this block to obtain Brunninx
-            RESDNCH[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*D[s,t]
-        )
-        @constraint(model, ResDownStorageDisCapacityMax[s in S, t in T],
-            RESDNDIS[s,t] <= + DIS[s,t]
-        )
-        @constraint(model, ResDownStorageDisLogic[s in S, t in T], #comment this block to obtain Brunninx
-            DIS[s,t] - RESDNDIS[s,t] <= storage[storage.r_id .== s,:existing_cap_mw][1]*(1-D[s,t])
-        )
+        # Energy constraints
         @constraint(model, ResUpStorageDisMax[s in S, t in T],
             RESUPDIS[s,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
         )
@@ -401,11 +441,15 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_env
     )
 end
 
-function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, storage_link_constraint)
+function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_link_constraint::Bool, thermal_reserve::Bool, sets::NamedTuple)
+    #TODO: include diagonal ramp reserves
+    G_thermal = sets.G_thermal
+    T = sets.T
+
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
-    _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
-    T, _____ =  create_time_sets(loads)
+    # _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
+    # T, _____ =  create_time_sets(loads)
 
     G_reserve = G_thermal
     if !isnothing(storage)
@@ -419,41 +463,94 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage, 
         ERESDN[G_reserve, j in T, t in T; j <= t] >= 0
     end)
     # (1) Reserves limited by committed capacity of generator
-    @constraint(model, EnergyResUpThermal[i in G_thermal, j in T, t in T; j <= t],
-        ERESUP[i, j, t] <= sum(
-            COMMIT[i,tt]*gen_df[gen_df.r_id .== i, :existing_cap_mw][1] - GEN[i,tt] for tt in T if (tt >= j)&(tt <= t)
+    @constraint(model, EnergyResUpThermal[g in G_thermal, j in T, t in T; j <= t],
+        ERESUP[g, j, t] <= sum(
+            COMMIT[g,tt]*gen_df[gen_df.r_id .== g, :existing_cap_mw][1] - GEN[g,tt] for tt in T if (tt >= j)&(tt <= t)
         )
     )
-    @constraint(model, EnergyResDownThermal[i in G_thermal, j in T, t in T; j <= t],
-        ERESDN[i, j, t] <= sum(
-            GEN[i,tt] - COMMIT[i,tt]*gen_df[gen_df.r_id .==i,:existing_cap_mw][1]*gen_df[gen_df.r_id .==i,:min_power][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
+    @constraint(model, EnergyResDownThermal[g in G_thermal, j in T, t in T; j <= t],
+        ERESDN[g, j, t] <= sum(
+            GEN[g,tt] - COMMIT[g,tt]*gen_df[gen_df.r_id .==g,:existing_cap_mw][1]*gen_df[gen_df.r_id .==g,:min_power][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
     # (2) Reserves limited by ramp rates
-    @constraint(model, EnergyResUpRamp[i in G_thermal, j in T, t in T; j <= t],
-        ERESUP[i, j, t] <=  sum(
-            gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_up_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
+    @constraint(model, EnergyResUpRamp[g in G_thermal, j in T, t in T; j <= t],
+        ERESUP[g, j, t] <=  sum(
+            gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*gen_df[gen_df.r_id .== g,:ramp_up_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
-    @constraint(model, EnergyResDnRamp[i in G_thermal, j in T, t in T; j <= t],
-        ERESDN[i, j, t] <=  sum(
-            gen_df[gen_df.r_id .== i,:existing_cap_mw][1]*gen_df[gen_df.r_id .== i,:ramp_dn_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
+    @constraint(model, EnergyResDnRamp[g in G_thermal, j in T, t in T; j <= t],
+        ERESDN[g, j, t] <=  sum(
+            gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*gen_df[gen_df.r_id .== g,:ramp_dn_percentage][1] for tt in T if (tt >= j)&(tt <= t) #TODO: calculation should be done at input file
         )
     )
+    if !thermal_reserve
+        for (g,j,t) in [(g,j,t) for g in G_thermal, j in T, t in T if j <= t]
+            fix(ERESUP[g,j,t], 0.0, force = true)
+            fix(ERESDN[g,j,t], 0.0, force = true)
+        end
+    end
+
     # (3) Storage reserve
     if !isnothing(storage)
+        # -- begin -- 
+        # Following variables are not constrained when energy reserves are used.
+        add_storage_reserve_power_constraints(model, storage, sets)
+        RESUPDIS = model[:RESUPDIS]
+        RESUPCH = model[:RESUPCH]
+        RESDNCH = model[:RESDNCH]
+        RESDNDIS = model[:RESDNDIS]
+        # --end --
+        @variables(model, begin
+            ERESUPDIS[S, j in T, t in T; j <= t] >= 0
+            ERESUPCH[S, j in T, t in T; j <= t] >= 0
+            ERESDNCH[S, j in T, t in T; j <= t] >= 0
+            ERESDNDIS[S, j in T, t in T; j <= t] >= 0
+        end)
+
+        # Power constraints 
+        @constraint(model, EnergyResUpStorageDisCapacityMax[s in S, j in T, t in T; j <= t],
+            ERESUPDIS[s,j,t] <= sum(
+                 RESUPDIS[s,tt] for tt in T if (tt >= j)&(tt <= t)
+            )
+        )
+        @constraint(model, EnergyResUpStorageChCapacityMax[s in S, j in T, t in T; j <= t],
+            ERESUPCH[s,j,t] <= sum(
+                RESUPCH[s,tt] for tt in T if (tt >= j)&(tt <= t)
+            )
+        )
+        @constraint(model, EnergyResDownStorageChCapacityMax[s in S, j in T, t in T; j <= t],
+            ERESDNCH[s,j,t] <= sum(
+                RESDNCH[s,tt] for tt in T if (tt >= j)&(tt <= t)
+            )
+        )
+        @constraint(model, EnergyResDownStorageDisCapacityMaxx[s in S, j in T, t in T; j <= t],
+            ERESDNDIS[s,j,t] <= sum(
+                RESDNDIS[s,tt] for tt in T if (tt >= j)&(tt <= t)
+            )
+        )
+
+        # Energy constraints
+        @constraint(model, EnergyResUpStorageDisEnergyMax[s in S, j in T, t in T; j <= t],
+            ERESUPDIS[s,j,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
+        )
+        @constraint(model, EnergyResDownStorageChEnergyMax[s in S, j in T, t in T; j <= t],
+            ERESDNCH[s,j,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
+        )
+
         @constraint(model, EnergyResUpStorage[s in S, j in T, t in T; j <= t],
-            ERESUP[s, j, t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
+            ERESUP[s,j,t] == ERESUPDIS[s,j,t] + ERESUPCH[s,j,t]
         )
         @constraint(model, EnergyResDownStorage[s in S, j in T, t in T; j <= t],
-            ERESDN[s, j, t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
+            ERESDN[s,j,t] == ERESDNCH[s,j,t] + ERESDNDIS[s,j,t]
         )
+
         if storage_link_constraint
             @constraint(model, EnergyResUpLink[s in S, j in T, t in T; j <= t],
-            ERESUP[s, j, t] == sum(ERESUP[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+                ERESUP[s,j,t] == sum(ERESUP[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
             )
             @constraint(model, EnergyResDownLink[s in S, j in T, t in T; j <= t],
-                ERESDN[s, j, t] == sum(ERESDN[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+                ERESDN[s,j,t] == sum(ERESDN[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
             )
         end
     end

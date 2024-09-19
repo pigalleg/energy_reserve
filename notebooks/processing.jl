@@ -36,22 +36,22 @@ end
 function generate_reserves(loads, gen_variable, margin_percentage, baseload = 0)
   filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
   net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
-  
   required_reserve = DataFrame(
     hour = loads[!,:hour],
     reserve_up_MW = baseload .+ (loads[!,:demand] .+ net_gen).*margin_percentage,
     reserve_down_MW = (loads[!,:demand] .+ net_gen).*margin_percentage)
   required_reserve = (required_reserve.>0).*required_reserve .- (required_reserve.<0).*required_reserve # negative to positive values
+  return required_reserve
+end
 
+function generate_energy_reserves(required_reserve)
   required_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
   required_energy_reserve = DataFrame(required_energy_reserve)
   required_energy_reserve = rename(required_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
-
-  required_energy_reserve_cumulated = [(row_1.hour, row_2.hour, sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_up_MW]), sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_down_MW])) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
-  required_energy_reserve_cumulated = DataFrame(required_energy_reserve_cumulated)
-  required_energy_reserve_cumulated = rename(required_energy_reserve_cumulated, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
-
-  return required_reserve, required_energy_reserve, required_energy_reserve_cumulated
+  # required_energy_reserve_cumulated = [(row_1.hour, row_2.hour, sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_up_MW]), sum(required_reserve[(required_reserve.hour .>= row_1.hour).&(required_reserve.hour .<= row_2.hour),:reserve_down_MW])) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
+  # required_energy_reserve_cumulated = DataFrame(required_energy_reserve_cumulated)
+  # required_energy_reserve_cumulated = rename(required_energy_reserve_cumulated, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)
+  return required_energy_reserve
 end
 
 

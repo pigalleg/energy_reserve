@@ -37,19 +37,24 @@ function create_time_sets(loads)
   return loads.hour, loads.hour[1:end-1]
 end
 
-function get_sets(gen_df, scenarios)
+function get_sets(gen_df, demand, probability = nothing) #stochastic
   G, G_thermal, G_nonthermal, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
-  T, T_red = create_time_sets(scenarios.demand)
-  Σ = create_scenarios_sets(scenarios.probability)
-  return sets = (G = G,
-    G_thermal = G_thermal,
-    G_nonthermal = G_nonthermal,
-    G_var = G_var,
-    G_nonvar = G_nonvar,
-    G_nt_nonvar = G_nt_nonvar,
-    T = T,
-    T_red = T_red,
-    Σ = Σ)
+  T, T_red = create_time_sets(demand)
+  out = (
+      G = G,
+      G_thermal = G_thermal,
+      G_nonthermal = G_nonthermal,
+      G_var = G_var,
+      G_nonvar = G_nonvar,
+      G_nt_nonvar = G_nt_nonvar,
+      T = T,
+      T_red = T_red
+    )
+  if !isnothing(probability)
+    return merge(out, (Σ = create_scenarios_sets(probability), ))
+  else
+    return out
+  end
 end
 
 function create_storage_sets(storage)

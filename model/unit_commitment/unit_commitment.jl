@@ -16,23 +16,23 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
     thermal_reserve = get(kwargs, :thermal_reserve, false)
     naive_envelopes = get(kwargs, :naive_envelopes, false)
-    
+    sets =  get_sets(gen_df, loads)
     uc = DUC(gen_df, loads, gen_variable, mip_gap)
     if !isnothing(storage)
         println("Adding storage...")
-        add_storage(uc, storage, loads, gen_df)
+        add_storage(uc, storage, loads, gen_df, sets)
     end
     if ramp_constraints
         println("Adding ramp constraints...")   
-        add_ramp_constraints(uc, gen_df)
+        add_ramp_constraints(uc, gen_df, sets)
     end
     if !isnothing(reserve) 
         println("Adding reserve constraints...")
-        add_reserve_constraints(uc, reserve, loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, naive_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE)
+        add_reserve_constraints(uc, reserve, loads, gen_df, storage, bidirectional_storage_reserve, storage_envelopes, naive_envelopes, thermal_reserve, μ_up, μ_dn, VRESERVE, sets)
     end
     if !isnothing(energy_reserve)
         println("Adding energy reserve constraints...")
-        add_energy_reserve_constraints(uc, energy_reserve, loads, gen_df, storage, storage_link_constraint)
+        add_energy_reserve_constraints(uc, energy_reserve, loads, gen_df, storage, storage_link_constraint, thermal_reserve, sets)
     end
     return uc
 end
@@ -42,11 +42,11 @@ function construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, sto
     uc = SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL, VLGEN)
     if !isnothing(storage)
         println("Adding storage...")
-        add_storage(uc, storage, scenarios, get_sets(gen_df, scenarios), expected_min_SOE) # TODO: This function is meant to be used within SUC
+        add_storage_s(uc, storage, scenarios, get_sets(gen_df, scenarios.demand, scenarios.probability), expected_min_SOE) # TODO: This function is meant to be used within SUC
     end
     if ramp_constraints
         println("Adding ramp constraints...")   
-        add_ramp_constraints(uc, gen_df, get_sets(gen_df, scenarios)) # TODO: This function is meant to be used within SUC
+        add_ramp_constraints_s(uc, gen_df, get_sets(gen_df, scenarios.demand, scenarios.probability)) # TODO: This function is meant to be used within SUC
     end
     return uc
 end

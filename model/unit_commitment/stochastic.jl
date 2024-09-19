@@ -18,7 +18,7 @@ function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
     # G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
     # T, T_red = create_time_sets(demand)
     # Σ = create_scenarios_sets(prob)
-    sets = get_sets(gen_df, scenarios)
+    sets = get_sets(gen_df, demand, prob)
     G = sets.G
     G_thermal = sets.G_thermal
     T = sets.T
@@ -189,7 +189,7 @@ function add_commitment_logic(model, gen_df, sets)
     )
 end
 
-function add_storage(model, storage, scenarios, sets::NamedTuple, expected_min_SOE::Bool)
+function add_storage_s(model, storage, scenarios, sets::NamedTuple, expected_min_SOE::Bool)
     prob = scenarios.probability
     demand = scenarios.demand
     
@@ -281,7 +281,7 @@ function add_storage(model, storage, scenarios, sets::NamedTuple, expected_min_S
     end
 end
 
-function add_ramp_constraints(model, gen_df, sets::NamedTuple)
+function add_ramp_constraints_s(model, gen_df, sets::NamedTuple)
     # G, G_thermal, G_nonthermal, __, ___, ____ = create_generators_sets(gen_df)  
     G_thermal = sets.G_thermal
     G_nonthermal = sets.G_nonthermal

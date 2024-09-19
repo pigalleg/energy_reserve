@@ -1,5 +1,6 @@
 using Infiltrator
-include("./model/utils.jl")
+include("./model/pre_processing.jl")
+include("./model/post_processing.jl")
 include("./model/unit_commitment/unit_commitment.jl")
 include("./model/economic_dispatch.jl")
 # include("./notebooks/plotting.jl")
@@ -82,9 +83,9 @@ config = (
 #     return config
 # end
 
-function load_deterministic_data(day, input_folder)
+function load_deterministic_data(day, input_folder, reserve = G_RESERVE)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
-    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, G_RESERVE)
+    required_reserve, required_energy_reserve, required_energy_reserve_cumulated = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
@@ -106,7 +107,7 @@ function duc(;kwargs...)
         gen_variable_multi_df;
         storage = storage_df,
         reserve = required_reserve,
-        naive_envelopes = true,
+        # naive_envelopes = true,
         config...
         )
 end
@@ -181,24 +182,24 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         return i > 1 ?  getindex(configurations, i-1) : nothing
     end
 
-    input_folder = get(kwargs, :input_folder, "./input/base_case")
+    input_folder = get(kwargs, :input_folder, G_input_folder)
     output_folder = get(kwargs, :output_folder, "./output")
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
     alternative_solution = get(kwargs, :alternative_solution, false)
 
     add_config = Dict(
-        :max_iterations => get(kwargs, :max_iterations, 100),
-        :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
+        # :max_iterations => get(kwargs, :max_iterations, 100),
+        # :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
         # :value_reserve => get(kwargs, :value_reserve, 1e-6),
-        :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
-        :VLOL => get(kwargs, :VLOL, 1e4),
+        # :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
+        # :VLOL => get(kwargs, :VLOL, 1e4),
         # :VLGEN => get(kwargs, :VLGEN, 0),
-        :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
-        :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
+        # :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
+        # :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
-        :constrain_dispatch_by_multipliers => get(kwargs, :constrain_dispatch_by_multipliers, false),
-        :naive_envelopes => get(kwargs, :naive_envelopes, false),
+        # :constrain_dispatch_by_multipliers => get(kwargs, :constrain_dispatch_by_multipliers, false),
+        # :naive_envelopes => get(kwargs, :naive_envelopes, false),
         # :variables_to_constrain => get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
         # :stochastic => get(kwargs, :stochastic, false),
     )
@@ -207,7 +208,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     s_ed = Dict()
     for day in days, k in configurations
 
-        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder)
+        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, reserve)
         config = merge(add_config, generate_configuration(k, storage_df, required_reserve)[k])
         
         k_reference = get_reference_configuration(k, configurations)

@@ -212,20 +212,6 @@ function get_storage_parameters(storage)
     return rename(storage[!,union(FIELD_FOR_ENRICHING, parameters_to_get)],[:existing_cap_mw, :max_energy_mwh] .=> [:P_max_MW, :SOE_max_MWh])
 end
 
-# function get_constraints(solution, data)
-#     aux = data[!,[:r_id]]
-#     if haskey(soution, :DISRESDNDIS)
-#         aux = innerjoin(
-#             rename(solution.DISRESDNDIS, :value => :DISRESDNDIS),
-#             rename(solution.DISRESUPDIS, :value => :DISRESUPDIS),
-#             rename(solution.CHRESDNCH, :value => :CHRESDNCH),
-#             rename(solution.CHRESUPCH, :value => :CHRESUPCH),
-#         on = [:r_id, :hour]
-#     )
-#     end
-#     leftjoin(aux, data[!,FIELD_FOR_ENRICHING], on = :r_id)
-# end
-
 function get_model_solution(model, gen_df, loads, gen_variable; config...)
     # Model is either UC or ED
     if get(config, :enriched_solution, true)
@@ -234,3 +220,24 @@ function get_model_solution(model, gen_df, loads, gen_variable; config...)
         return get_solution(model)#TODO: remove kwargs 
     end
 end
+
+function solution_to_parquet(s, file_name, file_folder)
+    # TODO move to post_processing
+    if !isdir(file_folder) mkdir(file_folder) end
+    println("writing...")
+    for (k,v) in zip(propertynames(s), s)
+      println("$(file_name)_$k")
+      Parquet2.writefile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"), change_type(change_type(v, Symbol, string), TerminationStatusCode, string))
+    end
+    println("...done")
+  end
+  
+  function parquet_to_solution(file_name, file_folder)
+    # TODO 1 convert to TerminationStatusCode
+    # TODO 2 move to post_processing
+    keys = [k for k in SOLUTION_KEYS if isfile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"))]
+    println("reading...")
+    aux = [read_parquet_and_convert(joinpath(file_folder, file_name*"_"*string(k)*".parquet")) for k in keys]
+    println("...done")
+    return NamedTuple(keys .=> aux)
+  end

@@ -3,7 +3,9 @@ using Gurobi
 using DataFrames
 # using Revise
 include("./unit_commitment/unit_commitment.jl")
-include("./post_processing.jl")
+# using .post_processing.jl: get_model_solution
+include("./post_processing.jl") # get_model_solution
+# using .get_model_solution
 # include("../debugging_ignore.jl")
 # __revise_mode__ = :eval
 COMMIT, START, SHUT, LOL_, RESUP, RESDN, SOEUP, SOEDN, ERESUP, ERESDN, HOUR, GEN, CH, DIS, ResUpRequirement, ResDnRequirement = :COMMIT, :START, :SHUT, :LOL, :RESUP, :RESDN, :SOEUP, :SOEDN, :ERESUP, :ERESDN, :hour, :GEN, :CH, :DIS, :ResUpRequirement, :ResDnRequirement 
@@ -32,7 +34,7 @@ function get_multipliers(model)
 end
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, constraint_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
+function construct_economic_dispatch(uc, loads, constrain_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -48,7 +50,7 @@ function construct_economic_dispatch(uc, loads, constraint_dispatch_by_multiplie
 
     ed = uc # pointer, uc object will change
     add_envelopes_UC(ed)
-    constrain_decision_variables(ed, constraint_dispatch_by_multipliers, constrain_SOE_by_envelopes, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
+    constrain_decision_variables(ed, constrain_dispatch_by_multipliers, constrain_SOE_by_envelopes, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
     constraint_SOE_final_to_envelopes_UC(ed) # redundant when constrain_SOE_by_envelopes == true
     # update objective function with LOL term and LGEN
     @variables(ed, begin 
@@ -77,7 +79,7 @@ function construct_economic_dispatch(uc, loads, constraint_dispatch_by_multiplie
 end
 
 
-function constrain_decision_variables(model, constraint_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN])
+function constrain_decision_variables(model, constrain_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN])
     #TODO: split this in multiple functions. Too many arguments.
     variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
      # envelopes for ED
@@ -85,7 +87,7 @@ function constrain_decision_variables(model, constraint_dispatch_by_multipliers:
     if constrain_dispatch & haskey(model,RESUP)
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
         μ_up, μ_dn = get_multipliers(model)
-        if !constraint_dispatch_by_multipliers #TODO: deprecated
+        if !constrain_dispatch_by_multipliers #TODO: deprecated
             μ_up = ones(length(μ_up), 1)
             μ_dn = ones(length(μ_dn), 1)
         end
@@ -372,7 +374,7 @@ end
 function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; kwargs...)
     # Parsing arguments...
     remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, true)
-    max_iterations = get(kwargs, :max_iterations, NB_ITERATIONS)
+    max_iterations = get(kwargs, :max_iterations, 100)
     constrain_dispatch = get(kwargs, :constrain_dispatch, true)
     variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN])
     remove_variables_from_objective = get(kwargs, :remove_variables_from_objective, false)
@@ -381,7 +383,7 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
     reference_solution = get(kwargs, :reference_solution, nothing)
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
     constrain_SOE_by_envelopes = get(kwargs, :constrain_SOE_by_envelopes, false)
-    constraint_dispatch_by_multipliers = get(kwargs, :constraint_dispatch_by_multipliers, false)
+    constrain_dispatch_by_multipliers = get(kwargs, :constrain_dispatch_by_multipliers, false)
     # parsing end
     # uc = construct_unit_commitment(gen_df, loads[!,[HOUR, DEMAND]], gen_variable; kwargs...)
     
@@ -392,7 +394,7 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
     if constrain_SOE_by_envelopes
         variables_to_constrain = [GEN]
     end
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constraint_dispatch_by_multipliers, constrain_SOE_by_envelopes, remove_reserve_constraints, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_dispatch_by_multipliers, constrain_SOE_by_envelopes, remove_reserve_constraints, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
     # save_model_to_file(ed,"ed")
     solutions = Dict()
     

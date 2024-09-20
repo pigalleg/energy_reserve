@@ -42,10 +42,8 @@ function plot_results(solution)
     ]
 end
 
-function generate_multipliers_configurations(μs)
-    mu_to_string(x) = isinteger(x) ? string(Int(x)) : replace(string(x), "." => "_")
-    return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
-end
+
+
 
 G_day = 7 # 68
 G_RESERVE = 0.1
@@ -107,8 +105,9 @@ function duc(;kwargs...)
         storage = storage_df,
         # reserve = required_reserve,
         # storage_envelopes = true,
-        energy_reserve = generate_energy_reserves(required_reserve),
-        storage_link_constraint = true,        
+        # energy_reserve = generate_energy_reserves(required_reserve),
+        energy_reserve = generate_energy_reserves_cumulative(required_reserve),
+        storage_link_constraint = false,        
         config...
         )
 end
@@ -210,7 +209,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     for day in days, k in configurations
 
         gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, reserve)
-        config = merge(add_config, generate_configuration(k, storage_df, required_reserve)[k])
+        required_energy_reserve = generate_energy_reserves(required_reserve)
+        config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve)[k])
         
         k_reference = get_reference_configuration(k, configurations)
         if !isnothing(k_reference) & alternative_solution # if reference_solution is added, both uc and ed are will be solved with alternative model
@@ -248,9 +248,23 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     return s_uc, s_ed
 end
 
-function generate_ed_solutions(;days, μs, kwargs...)
+function generate_ed_solutions(;days, kwargs...)
+    function generate_multipliers_configurations(μs)
+        mu_to_string(x) = isinteger(x) ? string(Int(x)) : replace(string(x), "." => "_")
+        return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
+    end
+
+    μs =  get(kwargs, :μs, nothing)
+    energy_reserve =  get(kwargs, :energy_reserve, false)
+    configs = []
+    if !isnothing(μs)
+        configs = generate_multipliers_configurations(μs)
+    end
+    if energy_reserve
+        push!(configs, :base_ramp_storage_energy_reserve)
+    end
     for day in days
-        generate_ed_solutions_([day], generate_multipliers_configurations(μs); kwargs...)
+        generate_ed_solutions_([day], configs; kwargs...)
     end
     generate_post_processing_KPI_files(get(kwargs, :output_folder, nothing))
 end

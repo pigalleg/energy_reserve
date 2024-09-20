@@ -441,7 +441,7 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_env
     )
 end
 
-function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_link_constraint::Bool, thermal_reserve::Bool, sets::NamedTuple)
+function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_link_constraint::Bool, thermal_reserve::Bool, VRESERVE::Union{Int64,Float64}, sets::NamedTuple)
     #TODO: include diagonal ramp reserves
     G_thermal = sets.G_thermal
     T = sets.T
@@ -462,6 +462,11 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
         ERESUP[G_reserve, j in T, t in T; j <= t] >= 0
         ERESDN[G_reserve, j in T, t in T; j <= t] >= 0
     end)
+
+    @objective(model, Min, 
+        objective_function(model) + VRESERVE*sum(ERESUP[g,t,t] for g in G_reserve, t in T) + VRESERVE*sum(ERESDN[g,t,t] for g in G_reserve, t in T)
+    )
+
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, EnergyResUpThermal[g in G_thermal, j in T, t in T; j <= t],
         ERESUP[g, j, t] <= sum(
@@ -531,11 +536,11 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
         )
 
         # Energy constraints
-        @constraint(model, EnergyResUpStorageDisEnergyMax[s in S, j in T, t in T; j <= t],
-            ERESUPDIS[s,j,t] <= (SOE[s,t]- storage[storage.r_id .== s,:min_energy_mwh][1])*storage[storage.r_id .== s,:discharge_efficiency][1] #TODO: include delta_T
+        @constraint(model, EnergyResUpStorageEnergyMax[s in S, j in T, t in T; j <= t],
+            ERESUPCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + ERESUPDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1] <= SOE[s,t] - storage[storage.r_id .== s,:min_energy_mwh][1] #TODO: include delta_T
         )
-        @constraint(model, EnergyResDownStorageChEnergyMax[s in S, j in T, t in T; j <= t],
-            ERESDNCH[s,j,t] <= (storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t])/storage[storage.r_id .== s,:charge_efficiency][1] #TODO: include delta_T
+        @constraint(model, EnergyResDownStorageEnergyMax[s in S, j in T, t in T; j <= t],
+            ERESDNCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + ERESDNDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1] <= storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t] #TODO: include delta_T
         )
 
         @constraint(model, EnergyResUpStorage[s in S, j in T, t in T; j <= t],
@@ -547,10 +552,18 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
 
         if storage_link_constraint
             @constraint(model, EnergyResUpLink[s in S, j in T, t in T; j <= t],
-                ERESUP[s,j,t] == sum(ERESUP[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+                # ERESUP[s,j,t] == sum(ERESUP[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+                ERESUPDIS[s,j,t] == sum(ERESUPDIS[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+            )
+            @constraint(model, EnergyResUpLinkBis[s in S, j in T, t in T; j <= t],
+                ERESUPCH[s,j,t] == sum(ERESUPCH[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
             )
             @constraint(model, EnergyResDownLink[s in S, j in T, t in T; j <= t],
-                ERESDN[s,j,t] == sum(ERESDN[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+                # ERESDN[s,j,t] == sum(ERESDN[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+                ERESDNCH[s,j,t] == sum(ERESDNCH[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
+            )
+            @constraint(model, EnergyResDownLinkBis[s in S, j in T, t in T; j <= t],
+                ERESDNDIS[s,j,t] == sum(ERESDNDIS[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
             )
         end
     end

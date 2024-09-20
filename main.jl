@@ -106,10 +106,9 @@ function duc(;kwargs...)
         gen_variable_multi_df;
         storage = storage_df,
         # reserve = required_reserve,
+        # storage_envelopes = true,
         energy_reserve = generate_energy_reserves(required_reserve),
-        # naive_envelopes = true,
-        storage_link_constraint = true,
-        storage_envelopes = false,
+        storage_link_constraint = true,        
         config...
         )
 end

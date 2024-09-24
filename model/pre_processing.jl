@@ -1,6 +1,7 @@
 using DataFrames
 using CSV
-
+using Distributions
+using LinearAlgebra
 
 G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
@@ -256,6 +257,7 @@ function generate_configuration(key::Symbol, storage_df, required_reserve, requi
     return Dict(key => Dict(
         :ramp_constraints => true,
         :storage => storage_df,
+        :storage_envelopes => true,
         :energy_reserve => required_energy_reserve)
     )
   end
@@ -264,7 +266,7 @@ function generate_configuration(key::Symbol, storage_df, required_reserve, requi
     μ_up = parse(Float64, replace(envelope_config_key[1], "_" => "."))
     μ_dn = parse(Float64, replace(envelope_config_key[2], "_" => "."))
     return generate_envelope_configuration(key, μ_up, μ_dn, storage_df, required_reserve) #TODO change to output just input key
-  else "base_ramp_storage_energy_reserve" in string(key)
+  else :base_ramp_storage_energy_reserve == key
     return generate_energy_reserve_configuration(key::Symbol, storage_df, required_energy_reserve)
     # return generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated) #TODO change to output just input key
   end
@@ -281,7 +283,50 @@ function generate_reserves(loads, gen_variable, margin_percentage, baseload = 0)
   return required_reserve
 end
 
-function generate_energy_reserves(required_reserve)
+function generate_reserves_fundamental(loads, gen_variable, ε; margin_percentage=0.1)
+  filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
+  net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
+  p = 1-ε # 0.975
+  μ = (loads[!,:demand] .+ net_gen)
+  σ = quantile(Normal(),p)
+  normals = Normal.(0, abs.(μ)*margin_percentage./σ)
+  reserve_up = quantile.(normals, p)
+  reserve_down = -quantile.(normals, 1-p)
+  return DataFrame(
+    hour = loads[!,:hour],
+    reserve_up_MW = reserve_up,
+    reserve_down_MW = reserve_down)
+  # required_reserve = (required_reserve.>0).*required_reserve .- (required_reserve.<0).*required_reserve # negative to positive values
+end
+
+function generate_energy_reserves(loads, gen_variable, ε; margin_percentage=0.1)
+  filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
+  net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
+  p = 1-ε
+  σ = quantile(Normal(),p)
+  μ = (loads[!,:demand] .+ net_gen)
+  μ_2 = μ.*μ
+  D = diagm(μ)
+  t_H = diagm(loads[!,:hour])
+  i_H = diagm(loads[!,:hour])
+  for i in 1:size(D,1), j in i:size(D,2)
+    D[i,j] = sqrt(sum((μ_2)[i:j]))
+    t_H[i,j] = t_H[i,i] + j-i
+    i_H[i,j] = i_H[i,i]
+  end
+  normals = Normal.(0, abs.(D)*margin_percentage./σ)
+  r_up = quantile.(normals, p)
+  r_down = -quantile.(normals, 1-p)
+  return DataFrame(
+    i_hour = vcat([i_H[i,i:end] for i in 1:size(i_H,1)]...),
+    t_hour = vcat([t_H[i,i:end] for i in 1:size(t_H,1)]...),
+    reserve_up_MW =  vcat([r_up[i,i:end] for i in 1:size(r_up,1)]...),
+    reserve_down_MW = vcat([r_down[i,i:end] for i in 1:size(r_down,1)]...)
+  )
+end
+
+
+function generate_energy_reserves_deprecated(required_reserve)
   required_energy_reserve = [(row_1.hour, row_2.hour, row_1.reserve_up_MW*(row_1.hour == row_2.hour), row_1.reserve_down_MW*(row_1.hour == row_2.hour)) for row_1 in eachrow(required_reserve), row_2 in eachrow(required_reserve) if row_1.hour <= row_2.hour]
   required_energy_reserve = DataFrame(required_energy_reserve)
   required_energy_reserve = rename(required_energy_reserve, :1 => :i_hour, :2 => :t_hour, :3 => :reserve_up_MW, :4 => :reserve_down_MW,)

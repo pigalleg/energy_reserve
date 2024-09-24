@@ -22,13 +22,13 @@ function get_multipliers(model)
     T = axes(CH)[2]
 
     SOE_constraint_list = [constraint_object.(model[:SOEEvol][s,T[1]]).func for s in S]
-    η_ch =-map(coefficient, SOE_constraint_list, Array(CH[:,T[1]]))
+    η_ch = -map(coefficient, SOE_constraint_list, Array(CH[:,T[1]]))
     
     # We assume that μ=μ(t), but independent of storage unit. We use therefore the first storage to determine the value: η_ch[1]
     SOEUp_constraint_list  = [constraint_object.(model[:SOEUpEvol][S[1],t]).func for t in T]
     μ_dn = -map(coefficient, SOEUp_constraint_list, Array(RESDNCH[S[1],:]))/η_ch[1]
     SOEDN_constraint_list  = [constraint_object.(model[:SOEDnEvol][S[1],t]).func for t in T]
-    μ_up =map(coefficient, SOEDN_constraint_list, Array(RESUPCH[S[1],:]))./η_ch[1]
+    μ_up = map(coefficient, SOEDN_constraint_list, Array(RESUPCH[S[1],:]))./η_ch[1]
     
     return μ_up, μ_dn
 end
@@ -79,12 +79,12 @@ function construct_economic_dispatch(uc, loads, constrain_dispatch_by_multiplier
 end
 
 
-function constrain_decision_variables(model, constrain_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN])
+function constrain_decision_variables(model, constrain_dispatch_by_multipliers::Bool, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN, :ERESUP, :ERESDN])
     #TODO: split this in multiple functions. Too many arguments.
-    variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix]
+    variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix if haskey(model, var)]
      # envelopes for ED
     SOEUP_value, SOEDN_value = generate_envelopes(model)
-    if constrain_dispatch & haskey(model,RESUP)
+    if constrain_dispatch & haskey(model, RESUP)
         variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
         μ_up, μ_dn = get_multipliers(model)
         if !constrain_dispatch_by_multipliers #TODO: deprecated
@@ -190,8 +190,13 @@ end
 
 function add_envelopes_UC(model)
     # UC envelopes
-    @expression(model, SOEUP_UC, value.(model[:SOEUP]))
-    @expression(model, SOEDN_UC, value.(model[:SOEDN]))
+    if haskey(model, :SOEUP)
+        @expression(model, SOEUP_UC, value.(model[:SOEUP]))
+        @expression(model, SOEDN_UC, value.(model[:SOEDN]))
+    elseif  haskey(model, :ESOEUP)
+        @expression(model, ESOEUP_UC, value.(model[:ESOEUP]))
+        @expression(model, ESOEDN_UC, value.(model[:ESOEDN]))
+    end
 end
 
 function add_envelopes_ED(model, SOEUP_value, SOEDN_value)
@@ -266,15 +271,24 @@ function constraint_SOE_final_to_envelopes_UC(model)
     # it assumes envelopes have been calculateed by this stage
     println("Constraining SOE final to envelopes...")
     SOE = model[:SOE]
-    T_incr = axes(SOE)[2]
     S = axes(SOE)[1]
+    T =  axes(model[:SupplyDemandBalance])[1]
     remove_variable_constraint(model, :SOEFinal)
-    @constraint(model, SOEFinalDn[s in S],
-        SOE[s,T_incr[end]] >= model[:SOEDN_UC][s,T_incr[end]]
-    )
-    @constraint(model, SOEFinalUp[s in S],
-        SOE[s,T_incr[end]] <= model[:SOEUP_UC][s,T_incr[end]]
-    )
+    if haskey(model, :SOEUP)
+        @constraint(model, SOEFinalDn[s in S],
+            SOE[s,T[end]] >= model[:SOEDN_UC][s,T[end]]
+        )
+        @constraint(model, SOEFinalUp[s in S],
+            SOE[s,T[end]] <= model[:SOEUP_UC][s,T[end]]
+        )
+    elseif haskey(model, :ESOEUP)
+        @constraint(model, SOEFinalDn[s in S],
+            SOE[s,T_incr[end]] >= model[:ESOEDN_UC][s,t,T_incr[end]]
+        )
+        @constraint(model, SOEFinalUp[s in S, t in T],
+            SOE[s,T_incr[end]] <= model[:ESOEUP_UC][s,t,T_incr[end]]
+        )
+    end
 end
 
 function fix_decision_variables(model, variables, remove_variables_from_objective = true)

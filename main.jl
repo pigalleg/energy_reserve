@@ -83,6 +83,7 @@ config = (
 
 function load_deterministic_data(day, input_folder, reserve = G_RESERVE)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
+    # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
     required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
@@ -104,9 +105,10 @@ function duc(;kwargs...)
         gen_variable_multi_df;
         storage = storage_df,
         # reserve = required_reserve,
-        # storage_envelopes = true,
-        # energy_reserve = generate_energy_reserves(required_reserve),
-        energy_reserve = generate_energy_reserves_cumulative(required_reserve),
+        storage_envelopes = true,
+        energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, 0.025),
+        # energy_reserve = generate_energy_reserves_deprecated(required_reserve),
+        # energy_reserve = generate_energy_reserves_cumulative(required_reserve),
         storage_link_constraint = false,        
         config...
         )
@@ -181,11 +183,11 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         i = first(findall(x->x == k , configurations))
         return i > 1 ?  getindex(configurations, i-1) : nothing
     end
-
     input_folder = get(kwargs, :input_folder, G_input_folder)
     output_folder = get(kwargs, :output_folder, "./output")
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
+    epsilon = get(kwargs, :epsilon, 0.025)
     alternative_solution = get(kwargs, :alternative_solution, false)
 
     add_config = Dict(
@@ -209,9 +211,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     for day in days, k in configurations
 
         gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, reserve)
-        required_energy_reserve = generate_energy_reserves(required_reserve)
+        required_energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, epsilon)
         config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve)[k])
-        
         k_reference = get_reference_configuration(k, configurations)
         if !isnothing(k_reference) & alternative_solution # if reference_solution is added, both uc and ed are will be solved with alternative model
             config = merge((reference_solution = s_uc[(day,k_reference)],), config)

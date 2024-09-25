@@ -165,114 +165,30 @@ end
 
 # --- end pre_processing ---
 
-# function generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated)
-#   configs = (
-#       base = (
-#           ramp_constraints = false,
-#           # storage = storage_df,
-#           # reserve = required_reserve,
-#           # energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           # storage_envelopes = false
-#       ),
-#       base_ramp = (
-#           ramp_constraints = true,
-#           # storage = storage_df,
-#           # reserve = required_reserve,
-#           # energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           # storage_envelopes = false
-#       ),
-#       base_ramp_reserve = (
-#           ramp_constraints = true,
-#           # storage = storage_df,
-#           reserve = required_reserve,
-#           # energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           # storage_envelopes = false
-#       ),
-#       base_ramp_energy_reserve = (
-#           ramp_constraints = true,
-#           # storage = storage_df,
-#           # reserve = required_reserve,
-#           energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           # storage_envelopes = false
-#       ),
-#       base_ramp_storage = (
-#           ramp_constraints = true,
-#           storage = storage_df,
-#           # reserve = required_reserve,
-#           # energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           # storage_envelopes = false
-#       ),
-#       base_ramp_storage_reserve = (
-#           ramp_constraints = true,
-#           storage = storage_df,
-#           reserve = required_reserve,
-#           # energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           # storage_envelopes = false
-#       ),
-#       base_ramp_storage_envelopes = (
-#           ramp_constraints = true,
-#           storage = storage_df,
-#           reserve = required_reserve,
-#           # energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           storage_envelopes = true
-#       ),
-#       base_ramp_storage_energy_reserve = (
-#           ramp_constraints = true,
-#           storage = storage_df,
-#           energy_reserve = required_energy_reserve,
-#           # enriched_solution = true,
-#           storage_envelopes = false,
-#       ),
-#       base_ramp_storage_energy_reserve_cumulated = (
-#           ramp_constraints = true,
-#           storage = storage_df,
-#           energy_reserve = required_energy_reserve_cumulated,
-#           # enriched_solution = true,
-#           storage_envelopes = false,
-#       ),
-#   )
-#   return Dict(pairs(configs))
-# end
-
-function generate_configuration(key::Symbol, storage_df, required_reserve, required_energy_reserve = nothing)
-  function generate_envelope_configuration(key::Symbol, μ_up, μ_dn, storage_df, required_reserve)
-    return Dict(key => Dict(
+function generate_configuration(key, storage_df; reserve=nothing, energy_reserve=nothing)
+  function generate_envelope_configuration(μ_up, μ_dn, storage_df)
+    return Dict(
         :ramp_constraints => true,
         :storage => storage_df,
-        :reserve => required_reserve,
+        # :reserve => required_reserve,
         # :enriched_solution => true,
         :storage_envelopes => true,
         :μ_up => μ_up,
         :μ_dn => μ_dn)
-    )
-  end
-  function generate_energy_reserve_configuration(key::Symbol, storage_df, required_energy_reserve)
-    return Dict(key => Dict(
-        :ramp_constraints => true,
-        :storage => storage_df,
-        :storage_envelopes => true,
-        :energy_reserve => required_energy_reserve)
-    )
   end
   envelope_config_key = match(r"base_ramp_storage_envelopes_up_(\w+)_dn_(\w+)", string(key))
-  if envelope_config_key != nothing
-    μ_up = parse(Float64, replace(envelope_config_key[1], "_" => "."))
-    μ_dn = parse(Float64, replace(envelope_config_key[2], "_" => "."))
-    return generate_envelope_configuration(key, μ_up, μ_dn, storage_df, required_reserve) #TODO change to output just input key
-  else :base_ramp_storage_energy_reserve == key
-    return generate_energy_reserve_configuration(key::Symbol, storage_df, required_energy_reserve)
-    # return generate_configurations(storage_df, required_reserve, required_energy_reserve, required_energy_reserve_cumulated) #TODO change to output just input key
+  μ_up = parse(Float64, replace(envelope_config_key[1], "_" => "."))
+  μ_dn = parse(Float64, replace(envelope_config_key[2], "_" => "."))
+  out =  generate_envelope_configuration(μ_up, μ_dn, storage_df)
+  if !isnothing(energy_reserve)
+    out[:energy_reserve] = energy_reserve
+  else 
+    out[:reserve] = reserve
   end
+  return out
 end
 
-function generate_reserves(loads, gen_variable, margin_percentage, baseload = 0)
+function generate_reserves_old(loads, gen_variable, margin_percentage, baseload = 0)
   filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
   net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
   required_reserve = DataFrame(
@@ -283,7 +199,7 @@ function generate_reserves(loads, gen_variable, margin_percentage, baseload = 0)
   return required_reserve
 end
 
-function generate_reserves_fundamental(loads, gen_variable, ε; margin_percentage=0.1)
+function generate_reserves(loads, gen_variable, ε; margin_percentage=0.1)
   filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
   net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
   p = 1-ε # 0.975
@@ -296,7 +212,6 @@ function generate_reserves_fundamental(loads, gen_variable, ε; margin_percentag
     hour = loads[!,:hour],
     reserve_up_MW = reserve_up,
     reserve_down_MW = reserve_down)
-  # required_reserve = (required_reserve.>0).*required_reserve .- (required_reserve.<0).*required_reserve # negative to positive values
 end
 
 function generate_energy_reserves(loads, gen_variable, ε; margin_percentage=0.1)

@@ -11,7 +11,6 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
     set_optimizer_attribute(model, "MIPGap", mip_gap)
     # set_optimizer_attribute(model, "LogFile", "./output/log_file.txt")
     set_optimizer_attribute(model, "OutputFlag", 0)
-
     # model = Model(HiGHS.Optimizer)
     # set_optimizer_attribute(model, "mip_rel_gap", mip_gap)
     sets = get_sets(gen_df, loads)
@@ -24,9 +23,6 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
     T_red = sets.T_red
     # G, G_thermal, _, G_var, G_nonvar, G_nt_nonvar = create_generators_sets(gen_df)
     # T, T_red = create_time_sets(loads)
-
-
-    
     @variables(model, begin
         GEN[G, T]  >= 0     # generation
         COMMIT[G_thermal, T], Bin # commitment status (Bin=binary)
@@ -37,7 +33,6 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods
       # TODO: add delta_T
-    
     @expression(model, StartCost,
         sum(gen_df[gen_df.r_id .== g,:start_cost_per_mw][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*START[g,t] for g in G_thermal for t in T)
     )
@@ -106,10 +101,7 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
 end
 
 function add_storage(model, storage, loads, gen_df, sets)
-    T = sets.T
-    # G, G_thermal, __, G_var, G_nonvar, ___ = create_generators_sets(gen_df)
-    # T, ____ =  create_time_sets(loads)
-    
+    T = sets.T 
     T_incr = copy(T)
     pushfirst!(T_incr, T_incr[1]-1)
     S = create_storage_sets(storage)
@@ -231,12 +223,8 @@ end
 function add_storage_reserve_power_constraints(model, storage, sets)
     T = sets.T
     S = create_storage_sets(storage)
-    # S = create_storage_sets(storage)
-    # SOE = model[:SOE]
     CH = model[:CH]
     DIS = model[:DIS]
-    # RESUP = model[:RESUP]
-    # RESDN = model[:RESDN]
     @variables(model, begin
         RESUPDIS[S, T] >= 0
         RESUPCH[S, T] >= 0
@@ -278,12 +266,8 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     G_thermal = sets.G_thermal
     T = sets.T
     T_red = sets.T_red
-
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
-    # _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
-    # T, T_red =  create_time_sets(loads)
-    
     G_reserve = G_thermal
     if !isnothing(storage)
         S = create_storage_sets(storage)
@@ -330,9 +314,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     if !isnothing(storage)
         S = create_storage_sets(storage)
         SOE = model[:SOE]
-        # CH = model[:CH]
-        # DIS = model[:DIS]
-       
         add_storage_reserve_power_constraints(model, storage, sets)
         RESUPDIS = model[:RESUPDIS]
         RESUPCH = model[:RESUPCH]
@@ -441,15 +422,12 @@ function add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_env
     )
 end
 
-function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_envelopes::Bool, storage_link_constraint::Bool, thermal_reserve::Bool, VRESERVE::Union{Int64,Float64}, sets::NamedTuple)
+function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, storage_envelopes::Bool, storage_link_constraint::Bool, thermal_reserve::Bool, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64}, sets::NamedTuple)
     #TODO: include diagonal ramp reserves
     G_thermal = sets.G_thermal
     T = sets.T
-
     GEN = model[:GEN]
     COMMIT = model[:COMMIT]
-    # _, G_thermal, _, __, ___, ____ = create_generators_sets(gen_df)
-    # T, _____ =  create_time_sets(loads)
 
     G_reserve = G_thermal
     if !isnothing(storage)
@@ -565,7 +543,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
 
         if storage_envelopes # TODO: change this to default when reserves are active
             println("Adding storage energy envelopes...")
-            add_energy_envelope_constraints(model, storage, sets)
+            add_energy_envelope_constraints(model, storage, μ_up, μ_dn, sets)
         end
 
         if storage_link_constraint
@@ -581,19 +559,6 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
             @constraint(model, EnergyResDownLinkBis[s in S, j in T, t in T; j <= t],
                 ERESDNDIS[s,j,t] == sum(ERESDNDIS[s, tt, tt] for tt in T if (tt >= j)&(tt <= t))
             )
-
-            # @constraint(model, EnergyResUpLink[s in S, t in T],
-            #     ERESUPDIS[s,T[1],t] == sum(ERESUPDIS[s, tt, tt] for tt in T if (tt >= T[1])&(tt <= t))
-            # )
-            # @constraint(model, EnergyResUpLinkBis[s in S, t in T],
-            #     ERESUPCH[s,T[1],t] == sum(ERESUPCH[s, tt, tt] for tt in T if (tt >= T[1])&(tt <= t))
-            # )
-            # @constraint(model, EnergyResDownLink[s in S, t in T],
-            #     ERESDNCH[s,T[1],t] == sum(ERESDNCH[s, tt, tt] for tt in T if (tt >= T[1])&(tt <= t))
-            # )
-            # @constraint(model, EnergyResDownLinkBis[s in S, t in T],
-            #     ERESDNDIS[s,T[1],t] == sum(ERESDNDIS[s, tt, tt] for tt in T if (tt >= T[1])&(tt <= t))
-            # )
         end
     end
 
@@ -609,13 +574,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
 end
 
 
-function add_energy_envelope_constraints(model, storage, sets)
-    # @constraint(model, EnergyResUpStorageEnergyMax[s in S, j in T, t in T; j <= t],
-    #     ERESUPCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + ERESUPDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1] <= SOE[s,t] - storage[storage.r_id .== s,:min_energy_mwh][1] #TODO: include delta_T
-    # )
-    # @constraint(model, EnergyResDownStorageEnergyMax[s in S, j in T, t in T; j <= t],
-    #     ERESDNCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + ERESDNDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1] <= storage[storage.r_id .== s,:max_energy_mwh][1] - SOE[s,t] #TODO: include delta_T
-    # )
+function add_energy_envelope_constraints(model, storage, μ_up, μ_dn, sets)
     SOE = model[:SOE]
     S = axes(SOE)[1]
     T = sets.T
@@ -629,10 +588,10 @@ function add_energy_envelope_constraints(model, storage, sets)
         ESOEDN[S, j in T, t in T; j <= t] >= 0
     end)
     @constraint(model, ESOEUpEvol[s in S, j in T, t in T; j <= t],
-        ESOEUP[s,j,t]  == SOE[s,t] + ERESDNCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + ERESDNDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
+        ESOEUP[s,j,t]  == SOE[s,t] + μ_dn*ERESDNCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + μ_dn*ERESDNDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
     )
     @constraint(model, ESOEDnEvol[s in S, j in T, t in T; j <= t], 
-        ESOEDN[s,j,t]  == SOE[s,t] - ERESUPCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + ERESUPDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
+        ESOEDN[s,j,t]  == SOE[s,t] - μ_up*ERESUPCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] - μ_up*ERESUPDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
     )
     
     # SOEUP, SOEDN <=SOE_max

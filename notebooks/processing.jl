@@ -110,7 +110,7 @@ function change_type(df, from, to)
 end
 
 
-parse_configuration_to_mu(x) = !isnothing(match(r"base_ramp_storage_envelopes_up_(\w+)_dn_(\w+)", string(x))) ? parse(Float64, replace(match(r"base_ramp_storage_envelopes_up_(\w+)_dn_(\w+)", string(x))[1], "_" => ".")) : missing
+parse_configuration_to_mu(x) = !isnothing(match(r"base_ramp_storage_envelopes_up_(\w+)_dn_(\w+)", string(x))) ? parse(Float64, replace(match(r"base_ramp_storage_envelopes_up_(\w+)_dn_(\w+)", string(x))[1], "_" => ".")) : 1
 
 function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   f_LOL(x,y) = 
@@ -210,7 +210,8 @@ function calculate_reserve_KPI(s_ed, s_uc, thres =.001)
   KPI_reserve = outerjoin(
     KPI_reserve,
     combine(groupby(s_ed.generation, union(group_by_big, [:hour])), :production_MW => sum => :production_MW),
-    combine(groupby(s_ed.storage, union(group_by_big, [:hour])), [:envelope_up_MWh, :envelope_down_MWh, :charge_MW, :discharge_MW, :SOE_MWh] .=> sum, renamecols = false),
+    # combine(groupby(s_ed.storage, union(group_by_big, [:hour])), [:envelope_up_MWh, :envelope_down_MWh, :charge_MW, :discharge_MW, :SOE_MWh] .=> sum, renamecols = false),
+    combine(groupby(s_ed.storage, union(group_by_big, [:hour])), [:charge_MW, :discharge_MW, :SOE_MWh] .=> sum, renamecols = false),
     on = union(group_by,[:iteration, :hour]))
 
   delivered = KPI_reserve.production_MW .+ KPI_reserve.discharge_MW .- KPI_reserve.charge_MW .- KPI_reserve.demand_uc_MW
@@ -221,8 +222,8 @@ function calculate_reserve_KPI(s_ed, s_uc, thres =.001)
   # end revise....
   
   # Calculation of Δenergy_reserve_up_MWh and Δenergy_reserve_dn_MWh
-  KPI_reserve.Δenergy_reserve_up_MWh = KPI_reserve.SOE_MWh - KPI_reserve.envelope_down_MWh
-  KPI_reserve.Δenergy_reserve_dn_MWh = KPI_reserve.envelope_up_MWh - KPI_reserve.SOE_MWh
+  # KPI_reserve.Δenergy_reserve_up_MWh = KPI_reserve.SOE_MWh - KPI_reserve.envelope_down_MWh
+  # KPI_reserve.Δenergy_reserve_dn_MWh = KPI_reserve.envelope_up_MWh - KPI_reserve.SOE_MWh
   select!(KPI_reserve, Not([:charge_MW, :discharge_MW])) # cleaning Dataframe
   return sort(transform(KPI_reserve, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu), :mu)
 end
@@ -235,7 +236,8 @@ function calculate_reserve_gcdi_KPI(KPI_reserve)
   gcdi_KPI_reserve.delivered_r_dn_ratio  = gcdi_KPI_reserve.delivered_r_dn_MWh ./gcdi_KPI_reserve.required_r_dn_MWh
   leftjoin!(
     gcdi_KPI_reserve,
-    combine(groupby(KPI_reserve, group_by_big), [:Δenergy_reserve_up_MWh, :Δenergy_reserve_dn_MWh, :SOE_MWh].=> (x -> x[end]) .=> [:final_Δenergy_reserve_up_MWh, :final_Δenergy_reserve_dn_MWh, :final_SOE_MWh]),
+    # combine(groupby(KPI_reserve, group_by_big), [:Δenergy_reserve_up_MWh, :Δenergy_reserve_dn_MWh, :SOE_MWh].=> (x -> x[end]) .=> [:final_Δenergy_reserve_up_MWh, :final_Δenergy_reserve_dn_MWh, :final_SOE_MWh]),
+    combine(groupby(KPI_reserve, group_by_big), [:SOE_MWh].=> (x -> x[end]) .=> [:final_SOE_MWh]),
     on = group_by_big)
   return sort(transform(gcdi_KPI_reserve, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu), :mu)
 end
@@ -243,7 +245,9 @@ end
 function calculate_reserve_gcd_KPI(gcdi_KPI_reserve)
   group_by = [:configuration, :day]
   gcd_KPI_reserve  = combine(groupby(gcdi_KPI_reserve, group_by), 
-    [:required_r_up_MWh, :required_r_dn_MWh, :delivered_r_up_MWh, :delivered_r_dn_MWh, :final_Δenergy_reserve_up_MWh, :final_Δenergy_reserve_dn_MWh, :final_SOE_MWh] .=> mean .=> [:E_required_r_up_MWh, :E_required_r_dn_MWh, :E_delivered_r_up_MWh, :E_deliverered_dn_MWh, :E_final_Δenergy_reserve_up_MWh, :E_final_Δenergy_reserve_dn_MWh, :E_final_SOE_MWh])
+    # [:required_r_up_MWh, :required_r_dn_MWh, :delivered_r_up_MWh, :delivered_r_dn_MWh, :final_Δenergy_reserve_up_MWh, :final_Δenergy_reserve_dn_MWh, :final_SOE_MWh] .=> mean .=> [:E_required_r_up_MWh, :E_required_r_dn_MWh, :E_delivered_r_up_MWh, :E_deliverered_dn_MWh, :E_final_Δenergy_reserve_up_MWh, :E_final_Δenergy_reserve_dn_MWh, :E_final_SOE_MWh]
+    [:required_r_up_MWh, :required_r_dn_MWh, :delivered_r_up_MWh, :delivered_r_dn_MWh, :final_SOE_MWh] .=> mean .=> [:E_required_r_up_MWh, :E_required_r_dn_MWh, :E_delivered_r_up_MWh, :E_deliverered_dn_MWh,  :E_final_SOE_MWh]
+    )
   gcd_KPI_reserve.delivered_r_up_ratio  = gcd_KPI_reserve.E_delivered_r_up_MWh ./gcd_KPI_reserve.E_required_r_up_MWh
   gcd_KPI_reserve.delivered_r_dn_ratio  = gcd_KPI_reserve.E_deliverered_dn_MWh ./gcd_KPI_reserve.E_required_r_dn_MWh
   return sort(transform(gcd_KPI_reserve, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu), :mu)

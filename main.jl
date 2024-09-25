@@ -47,6 +47,7 @@ end
 
 G_day = 7 # 68
 G_RESERVE = 0.1
+G_ε = 0.025
 G_input_folder = "./input/base_case_increased_storage_energy_v3.1"
 # G_REMOVE_RESERVE_CONSTRAINTS = true
 # G_CONSTRAIN_DISPATCH = true
@@ -81,10 +82,10 @@ config = (
 #     return config
 # end
 
-function load_deterministic_data(day, input_folder, reserve = G_RESERVE)
+function load_deterministic_data(day, input_folder; reserve = G_RESERVE, ε = 0)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
     # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
-    required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
+    required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, ε)
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
 end
@@ -188,8 +189,9 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
     epsilon = get(kwargs, :epsilon, 0.025)
+    energy_reserve = get(kwargs, :energy_reserve, false)
     alternative_solution = get(kwargs, :alternative_solution, false)
-
+    # μs =  get(kwargs, :μs, nothing)
     add_config = Dict(
         # :max_iterations => get(kwargs, :max_iterations, 100),
         # :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
@@ -201,7 +203,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
         # :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         # :naive_envelopes => get(kwargs, :naive_envelopes, false),
-        # :variables_to_constrain => get(kwargs, :variables_to_constrain, [GEN, CH, DIS])
+        :variables_to_constrain => get(kwargs, :variables_to_constrain, [:GEN])
         # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
@@ -209,9 +211,13 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     s_ed = Dict()
     for day in days, k in configurations
 
-        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, reserve)
+        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, ε = epsilon)
         required_energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, epsilon)
-        config = merge(add_config, generate_configuration(k, storage_df, required_reserve, required_energy_reserve)[k])
+        if energy_reserve
+            config = merge(add_config, generate_configuration(k, storage_df, energy_reserve = required_energy_reserve))
+        else
+            config = merge(add_config, generate_configuration(k, storage_df, reserve = required_reserve))
+        end
         k_reference = get_reference_configuration(k, configurations)
         if !isnothing(k_reference) & alternative_solution # if reference_solution is added, both uc and ed are will be solved with alternative model
             config = merge((reference_solution = s_uc[(day,k_reference)],), config)
@@ -234,11 +240,13 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     end
     s_ed = merge_solutions(s_ed, [:day, :configuration])
     s_uc = merge_solutions(s_uc, [:day, :configuration])
-
-    s_uc = Dict(pairs(s_uc))
-    if haskey(s_uc, :energy_reserve) s_uc[:reserve] = vcat(s_uc[:reserve], s_uc[:energy_reserve][s_uc[:energy_reserve].hour.==s_uc[:energy_reserve].hour_i,:][:,Not(:hour_i)]) end
-    s_uc = NamedTuple(s_uc)
-
+    # s_uc = Dict(pairs(s_uc))
+    if haskey(s_uc, :energy_reserve) 
+        s_uc = merge(s_uc, 
+            (reserve = vcat(get(s_uc, :reserve, DataFrame()), s_uc[:energy_reserve][s_uc[:energy_reserve].hour.==s_uc[:energy_reserve].hour_i,:][:,Not(:hour_i)]),)
+        )
+    end
+    # s_uc = NamedTuple(s_uc)
     if write
         if !isdir(output_folder) mkdir(output_folder) end
         folder_path = joinpath(output_folder,"n_$(join(days,"-"))")
@@ -253,18 +261,8 @@ function generate_ed_solutions(;days, kwargs...)
         mu_to_string(x) = isinteger(x) ? string(Int(x)) : replace(string(x), "." => "_")
         return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
     end
-
-    μs =  get(kwargs, :μs, nothing)
-    energy_reserve =  get(kwargs, :energy_reserve, false)
-    configs = []
-    if !isnothing(μs)
-        configs = generate_multipliers_configurations(μs)
-    end
-    if energy_reserve
-        push!(configs, :base_ramp_storage_energy_reserve)
-    end
     for day in days
-        generate_ed_solutions_([day], configs; kwargs...)
+        generate_ed_solutions_([day], generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
     end
     generate_post_processing_KPI_files(get(kwargs, :output_folder, nothing))
 end

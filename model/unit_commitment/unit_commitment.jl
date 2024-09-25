@@ -32,7 +32,7 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     end
     if !isnothing(energy_reserve)
         println("Adding energy reserve constraints...")
-        add_energy_reserve_constraints(uc, energy_reserve, loads, gen_df, storage, storage_envelopes, storage_link_constraint, thermal_reserve, VRESERVE, sets)
+        add_energy_reserve_constraints(uc, energy_reserve, loads, gen_df, storage, storage_envelopes, storage_link_constraint, thermal_reserve, μ_up, μ_dn, VRESERVE, sets)
     end
     return uc
 end

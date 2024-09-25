@@ -13,6 +13,8 @@ ITERATION = :iteration
 DEMAND = :demand
 NB_ITERATIONS = 10000
 
+
+
 function get_multipliers(model)
     CH = model[:CH]
     DIS = model[:DIS]
@@ -34,7 +36,7 @@ function get_multipliers(model)
 end
 
 # TODO change gen_variable => gen_varialbe_df, loads => loads_df
-function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool, remove_reserve_constraints::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
+function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain::Vector{Symbol}, VLOL::Union{Float64,Int64,Vector}, VLGEN::Union{Float64,Int64,Vector})
     #TODO: remove loads from arguments
     println("Constructing EC...")
     # Outputs EC by fixing variables of UC
@@ -47,7 +49,6 @@ function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool
     # set_optimizer_attribute(ed, "OutputFlag", 0)
     # set_optimizer_attribute(ed, "MIPGap", get_optimizer_attribute(uc,"MIPGap"))
     # optimize!(ed)
-
     ed = uc # pointer, uc object will change
     add_envelopes_UC(ed)
     constrain_decision_variables(ed, constrain_SOE_by_envelopes, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
@@ -70,55 +71,50 @@ function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool
     @expression(ed, SupplyDemand[t in T],
         SupplyDemand[t] + LOL[t] - LGEN[t]
     )
-    # By default, (energy) reserve constraints are removed 
-    if remove_reserve_constraints
-        remove_energy_and_reserve_constraints(ed)
-    end
+    remove_energy_and_reserve_constraints(ed)
     println("...done")
     return ed
 end
 
 
 function constrain_decision_variables(model, constrain_SOE_by_envelopes::Bool, constrain_dispatch::Bool, bidirectional_storage_reserve::Bool, remove_variables_from_objective::Bool, variables_to_constrain = [GEN, CH, DIS], variables_to_fix =  [COMMIT, START, SHUT,:RESUP, :RESDN, :ERESUP, :ERESDN])
-    function get_reserves(model)
-        
-        if haskey(model, :RESUP)
-            return model[:RESUP], model[:RESDN], model[:ERESUP], model[:ERESDN]
-        elseif haskey(model, :ERESUP)
-            return model[:ERESUP], model[:ERESDN], model[:ERESUP], model[:ERESDN]
-        end
+    function get_reserves_variables(model, prepend = false)
+        prepend_E(symbol_name, prepend) = !prepend ? symbol_name : Symbol("E"*string(symbol_name))    
+        return Dict(
+            :res_up_var => model[prepend_E(:RESUP, prepend)],
+            :res_up_var_value => value.(model[prepend_E(:RESUP, prepend)]),
+            :res_dn_var => model[prepend_E(:RESDN, prepend)],
+            :res_dn_var_value => value.(model[prepend_E(:RESDN, prepend)]),
+            :res_up_ch_var =>  model[prepend_E(:RESUPCH, prepend)],
+            :res_up_ch_var_value => value.(model[prepend_E(:RESUPCH, prepend)]),
+            :res_up_dis_var =>  model[prepend_E(:RESUPDIS, prepend)],
+            :res_up_dis_var_value => value.(model[prepend_E(:RESUPDIS, prepend)]),
+            :res_dn_ch_var =>  model[prepend_E(:RESDNCH, prepend)],
+            :res_dn_ch_var_value => value.(model[prepend_E(:RESDNCH, prepend)]), 
+            :res_dn_dis_var =>  model[prepend_E(:RESDNDIS, prepend)],
+            :res_dn_dis_var_value => value.(model[prepend_E(:RESDNDIS, prepend)]), 
+        )
     end
     #TODO: split this in multiple functions. Too many arguments.
-    variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix if haskey(model, var)]
-    variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
-    if constrain_SOE_by_envelopes
+    variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix if haskey(model, var)] # values extraction
+    if constrain_SOE_by_envelopes # values extraction
         # envelopes for ED
-        SOEUP_value, SOEDN_value = generate_envelopes(model)
+        SOEUP_value, SOEDN_value = generate_envelopes(model) # values extraction
     end
-    if constrain_dispatch
-        # variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain]
+    if constrain_dispatch # assumes either ERESUP or RESUP exists
+        constrain_by_energy = haskey(model, :ERESUP) # determines whether reserves or energy reserves
+        variables_to_constrain =  [(model[var], value.(model[var])) for var in variables_to_constrain] # values extraction
+        variables_from_reserve = get_reserves_variables(model, constrain_by_energy) # values extraction
+        constrain_dispatch_variables_according_to_reserve(model, bidirectional_storage_reserve, variables_to_constrain, constrain_by_energy; variables_from_reserve...)
         # μ_up, μ_dn = get_multipliers(model)
         # if !constrain_dispatch_by_multipliers #TODO: deprecated
         #     μ_up = ones(length(μ_up), 1)
         #     μ_dn = ones(length(μ_dn), 1)
         # end
         # get_reserves(model)
-        kwargs = Dict(
-            :res_up_var => model[:RESUP],
-            :res_up_var_value => value.(model[:RESUP]),
-            :res_dn_var => model[:RESDN],
-            :res_dn_var_value => value.(model[:RESDN]),
-            :res_up_ch_var =>  model[:RESUPCH],
-            :res_up_ch_var_value => value.(model[:RESUPCH]),#.*μ_up',
-            :res_up_dis_var =>  model[:RESUPDIS],
-            :res_up_dis_var_value => value.(model[:RESUPDIS]),#.*μ_up',
-            :res_dn_ch_var =>  model[:RESDNCH],
-            :res_dn_ch_var_value => value.(model[:RESDNCH]),#.*μ_dn',
-            :res_dn_dis_var =>  model[:RESDNDIS],
-            :res_dn_dis_var_value => value.(model[:RESDNDIS]),#.*μ_dn',
-            )
+        
         # variable extractions must be executeed before modification of the model
-        constrain_dispatch_variables_according_to_reserve(model, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
+       
     end
     if constrain_SOE_by_envelopes
         constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
@@ -127,35 +123,41 @@ function constrain_decision_variables(model, constrain_SOE_by_envelopes::Bool, c
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
 end
 
-function constrain_dispatch_variables_according_to_reserve(model, bidirectional_storage_reserve, variables_to_constrain; kwargs...)
+function constrain_dispatch_variables_according_to_reserve(model, bidirectional_storage_reserve, variables_to_constrain, constrain_by_energy; kwargs...)
     # Dispatch constrained based on the procured reserve at UC stage
     # Function fixes up to three variable types: :GEN, :CH and :DIS
     function get_variable_base_name(variable)
         return Symbol(match(r"([A-z]+)\[", name(first(variable)))[1])
     end
 
-    function constraint_production_variables(var, var_value, res_up_var, res_up_var_value; constrain_by_energy = false, lower_bound = false)
-    # constrain_by_energy deprecated
-        G = intersect(axes(res_up_var)[1], axes(var)[1])
-        T = intersect(axes(res_up_var)[2], axes(var)[2])
+
+
+    function constrain_production_variables(var, var_value, res_up_var, res_up_var_value, constrain_by_energy; lower_bound = false) 
+        # G = intersect(axes(res_up_var)[1], axes(var)[1])
+        # T = intersect(axes(res_up_var)[2], axes(var)[2])
+        T = axes(var)[2]
         name = Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")
         c = !lower_bound ? 1 : -1
         # model[name] = @constraint(model, [s in G, t in T], 
         #     c*var[s,t] <= c*var_value[s,t] + res_up_var_value[s,t]
         #     )
         if !constrain_by_energy
-            model[name] = @constraint(model, [s in G, t in T], 
-                c*var[s,t] <= c*var_value[s,t] + res_up_var_value[s,t]
+            G = intersect(axes(res_up_var)[1], axes(var)[1])
+            model[name] = @constraint(model, [g in G, t in T], 
+                c*var[g,t] <= c*var_value[g,t] + res_up_var_value[g,t]
             )
-            for s in G, t in T # important to identify constraints for debugging
-                set_name(model[name][s,t], string(name)*"[$s,$t]")
+            for g in G, t in T # important to identify constraints for debugging
+                set_name(model[name][g,t], string(name)*"[$g,$t]")
             end
-        else #deprecated
-            model[name] = @constraint(model, [s in G], 
-                sum(c*var[s,t] for t in T) <= sum(c*var_value[s,t] + res_up_var_value[s,t] for t in T)
+        else
+            G = [g for (g,j,t) in eachindex(res_up_var)]
+            G = intersect(G, axes(var)[1])
+            model[name] = @constraint(model,[g in G, j in T, t in T; j <= t],
+                sum(c*(var[g,tt] - var_value[g,tt]) for tt in T if (tt >= j)&(tt <= t)) <= + res_up_var_value[g,j,t]
             )
-            for s in G # important to identify constraints for debugging
-                set_name(model[name][s], string(name)*"[$s]")
+            for g in G, j in T, t in T if j<=t # important to identify constraints for debugging
+                    set_name(model[name][g,j,t], string(name)*"[$g,$j,$t")
+                end
             end
         end
         # By default, units not offering reserve will have their dispatch fixed.
@@ -179,28 +181,29 @@ function constrain_dispatch_variables_according_to_reserve(model, bidirectional_
     end
     for (var, var_value) in variables_to_constrain
         if get_variable_base_name(var) in gen_logic_group
-            # constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], kwargs[:res_dn_var], kwargs[:res_dn_var_value])
+            # constrain_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], kwargs[:res_dn_var], kwargs[:res_dn_var_value])
             # name_up = Symbol("$(string(get_variable_base_name(var)))$(string(get_variable_base_name(res_up_var)))")
-            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], lower_bound = true)
+            constrain_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], constrain_by_energy)
+            constrain_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], constrain_by_energy, lower_bound = true)
         elseif get_variable_base_name(var) in dis_logic_group
-            # constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value], lower_bound = true)
+            # constrain_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value])
+            constrain_production_variables(var, var_value, kwargs[:res_up_dis_var], kwargs[:res_up_dis_var_value], constrain_by_energy)
+            constrain_production_variables(var, var_value, kwargs[:res_dn_dis_var], kwargs[:res_dn_dis_var_value], constrain_by_energy, lower_bound = true)
         elseif get_variable_base_name(var) in ch_logic_group
-            # constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value], lower_bound = true)
+            # constrain_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value])
+            constrain_production_variables(var, var_value, kwargs[:res_dn_ch_var], kwargs[:res_dn_ch_var_value], constrain_by_energy)
+            constrain_production_variables(var, var_value, kwargs[:res_up_ch_var], kwargs[:res_up_ch_var_value], constrain_by_energy, lower_bound = true)
 
         elseif get_variable_base_name(var) in ch_logic_group_2
-            # constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], kwargs[:res_up_var], kwargs[:res_up_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value])
-            constraint_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], lower_bound = true)
+            # constrain_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], kwargs[:res_up_var], kwargs[:res_up_var_value])
+            constrain_production_variables(var, var_value, kwargs[:res_dn_var], kwargs[:res_dn_var_value], constrain_by_energy)
+            constrain_production_variables(var, var_value, kwargs[:res_up_var], kwargs[:res_up_var_value], constrain_by_energy, lower_bound = true)
         end
     end
 end
 
 function add_envelopes_UC(model)
+    #TODO :extend to energy enevelopes
     # UC envelopes
     if haskey(model, :SOEUP)
         @expression(model, SOEUP_UC, value.(model[:SOEUP]))
@@ -221,8 +224,6 @@ end
 
 function generate_envelopes(model)
     #TODO: extend to energy envelopes
-    # SOEUP_value = value.(model[:SOEUP])
-    # SOEDN_value = value.(model[:SOEDN])
     CH = model[:CH]
     DIS = model[:DIS]
     RESDNCH = model[:RESDNCH]
@@ -296,10 +297,10 @@ function constraint_SOE_final_to_envelopes_UC(model)
         )
     elseif haskey(model, :ESOEUP)
         @constraint(model, SOEFinalDn[s in S],
-            SOE[s,T_incr[end]] >= model[:ESOEDN_UC][s,t,T_incr[end]]
+            SOE[s,T[end]] >= minimum(model[:ESOEDN_UC][s,:,T[end]])
         )
-        @constraint(model, SOEFinalUp[s in S, t in T],
-            SOE[s,T_incr[end]] <= model[:ESOEUP_UC][s,t,T_incr[end]]
+        @constraint(model, SOEFinalUp[s in S],
+            SOE[s,T[end]] <= maximum(model[:ESOEUP_UC][s,:,T[end]])
         )
     end
 end
@@ -308,7 +309,8 @@ function fix_decision_variables(model, variables, remove_variables_from_objectiv
     println("Fixing decision variables...")
     for (var, var_value) in variables
     # for (var, var_value) in [(model[var], value.(model[var])) for var in decision_variables]
-        for key in collect(keys(var))
+        # for key in collect(keys(var))
+        for key in collect(eachindex(var))  
            fix(var[key], var_value[key]; force = !is_binary(var[key]))
            if remove_variables_from_objective 
                 println("Removing fixed decision variables from objective...")
@@ -323,18 +325,31 @@ function remove_energy_and_reserve_constraints(model)
     # Remove reserve, energy reserve and storge envelope's associated variables/constraints
     # TODO: check fix decision variables
     keys = [:ResUpRequirement, :ResDnRequirement,
+        :EnergyResUpRequirement, :EnerResDnRequirement,
         :ResUpThermal, :ResDnThermal, :ResUpRamp, :ResDnRamp, :ResUpRampRobust, :ResDnRampRobust,
-        :ResUpStorage, :ResDownStorage, 
-        :ResUpStorageDisCapacityMax, :ResUpStorageDisLogic, :ResUpStorageChCapacityMax, :ResUpStorageChLogic,
-        :ResDownStorageChCapacityMax, :ResDownStorageChLogic, :ResDownStorageDisCapacityMax, :ResDownStorageDisLogic,
-        :ResUpStorageDisMax, :ResDownStorageChMax,
-        :ResUpStorageCapacityMax, :ResDownStorageCapacityMax,
+        :EnergyResUpThermal, :EnergyResDownThermal, :EnergyResUpRamp, :EnergyResDnRamp,
+        :ResUpStorage, :ResDownStorage, # TODO: no longer needed
+        
+        :ResUpStorageDisCapacityMax, :ResUpStorageDisLogic, :ResUpStorageChCapacityMax, :ResUpStorageChLogic, # power constraints
+        :ResDownStorageChCapacityMax, :ResDownStorageChLogic, :ResDownStorageDisCapacityMax, :ResDownStorageDisLogic, # power constraints
+        
+        :EnergyResUpStorageDisCapacityMax, :EnergyResUpStorageChCapacityMax, # power constraints
+        :EnergyResDownStorageChCapacityMax, :EnergyResDownStorageDisCapacityMax, 
+
+        :ResUpStorageDisMax, :ResDownStorageChMax, # energy constraints
+        :EnergyResUpStorageEnergyMax, :EnergyResDownStorageEnergyMax, # energy constraints
+        :ResUpStorageCapacityMax, :ResDownStorageCapacityMax, # aggregation 
+        :EnergyResUpStorage, :EnergyResDownStorage, # aggregation
+
+        :EnergyResUpLink, :EnergyResUpLinkBis, :EnergyResDownLink, :EnergyResDownLinkBis, # linking constrains
         # :D,:U,
         :SOEUpEvol, :SOEDnEvol, :SOEUP_0, :SOEDN_0, :SOEUPMax, :SOEDNMax, :SOEUPMin, :SOEDNMin,#, :SOEDN, :SOEUP,
+        :ESOEUpEvol, :ESOEDnEvol, :ESOEUPMax, :ESOEDNMax, :ESOEUPMin, :ESOEDNMin,
         # :EnergyResUpThermal, :EnergyResDownThermal, :EnergyResUpRamp, :EnergyResDnRamp,
         # :EnergyResUpZero, :EnergyResDnZero,
         # :EnergyResUpStorage, :EnergyResDownStorage, :EnergyResUpLink, :EnergyResDownLink,
         # :EnergyResUpRequirement, :EnerResDnRequirement,
+
         :OVMax, :OVMin, :ResUpThermalMin, :ResDownThermalMin, :CommitmentMin, :ResUpStorageMax, :ResUpStorageMin,
         :Startup, :Shutdown, :CommitmentStatus,
         #:RESUP, :RESDN, -> do not remove because belong to the OF.
@@ -377,7 +392,6 @@ function merge_solutions(solutions::Dict, merge_keys = [ITERATION])
     #TODO can be done more elegantly
     solution_keys = union([keys(v) for (k,v) in solutions]...)
     aux = Dict(k => [] for k in solution_keys)
-
     for d in keys(solutions), k in intersect(keys(solutions[d]), solution_keys)
         aux_ = DataFrame(collect(repeat([isa(d,Tuple) ? d : tuple(d)], size(solutions[d][k],1))), merge_keys)
         push!(aux[k], hcat(solutions[d][k], aux_))
@@ -400,7 +414,7 @@ end
 
 function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; kwargs...)
     # Parsing arguments...
-    remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, true)
+    # remove_reserve_constraints = get(kwargs, :remove_reserve_constraints, true)
     max_iterations = get(kwargs, :max_iterations, 100)
     constrain_dispatch = get(kwargs, :constrain_dispatch, true)
     variables_to_constrain = get(kwargs, :variables_to_constrain, [GEN])
@@ -420,7 +434,7 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
     if constrain_SOE_by_envelopes
         variables_to_constrain = [GEN]
     end
-    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_SOE_by_envelopes, remove_reserve_constraints, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
+    ed = construct_economic_dispatch(uc, loads[!,[HOUR, DEMAND]], constrain_SOE_by_envelopes, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain, VLOL, VLGEN)
     # save_model_to_file(ed,"ed")
     solutions = Dict()
     

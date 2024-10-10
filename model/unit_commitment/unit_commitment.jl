@@ -8,7 +8,7 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     println("Constructing DUC...")
     reserve = get(kwargs, :reserve, nothing)
     energy_reserve = get(kwargs, :energy_reserve, nothing)
-    storage_envelopes = get(kwargs, :storage_envelopes, false)
+    storage_envelopes = get(kwargs, :storage_envelopes, true)
     storage_link_constraint =  get(kwargs, :storage_link_constraint, false)
     μ_up = get(kwargs, :μ_up, 1)
     μ_dn = get(kwargs, :μ_dn, 1)

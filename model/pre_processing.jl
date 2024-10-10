@@ -7,7 +7,28 @@ G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
 SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters]
 G_UC_DATA = "uc"
+
+
+
 # --- start pre_processing ---
+
+function variance(σ, ρ)
+  # For autocorrelated errors X[t+1] = ρ*X[t] + (1-ρ^2)^(1/2)*N(0,σ[t])
+  # then var(X[t]) = ρ^2*var(X[t-1]) + (1-ρ^2)*σ[t]^2, with var(X[0]) = σ[0]^2
+  var = Vector{Float64}(undef,  length(σ))
+  var[1] = σ[1]^2
+  for i in 2:length(var)
+    var[i] = ρ^2*var[i-1] + (1-ρ^2)* σ[i]^2
+  end
+  return var
+end
+
+function get_var(timeseries, ρ, p, margin = 0.1)
+  σ = abs.(timeseries*margin./quantile(Normal(),p))
+  σ = reshape(σ,(24,:))
+  return mapslices(x->variance(x, ρ), σ, dims=1)
+end
+
 function to_GMT(df) # deprecated
   # Convert from GMT to GMT-8
   df.hour = mod.(df.hour .- 9, 8760) .+ 1
@@ -199,39 +220,40 @@ function generate_reserves_old(loads, gen_variable, margin_percentage, baseload 
   return required_reserve
 end
 
-function generate_reserves(loads, gen_variable, ε; margin_percentage=0.1)
+function generate_reserves(loads, gen_variable, ε, ρ; margin=0.1)
   filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
   net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
   p = 1-ε # 0.975
   μ = (loads[!,:demand] .+ net_gen)
-  σ = quantile(Normal(),p)
-  normals = Normal.(0, abs.(μ)*margin_percentage./σ)
-  reserve_up = quantile.(normals, p)
-  reserve_down = -quantile.(normals, 1-p)
+  var =  get_var(μ , ρ, p, margin)
+  σ = vec(sqrt.(var))
+  normals = Normal.(0, σ)
   return DataFrame(
     hour = loads[!,:hour],
-    reserve_up_MW = reserve_up,
-    reserve_down_MW = reserve_down)
+    reserve_up_MW = quantile.(normals, p),
+    reserve_down_MW = -cquantile.(normals, p))
 end
 
-function generate_energy_reserves(loads, gen_variable, ε; margin_percentage=0.1)
+function generate_energy_reserves(loads, gen_variable, ε, ρ; margin=0.1)
+  # Assumes that X[t] t = [1...24] are independent N(0,σ[t])
+  # therefore Z[i,t] = sum_{τ=i}^t X[τ] is N(0,σ_Z[i,t]) with σ_Z[i,t] = (sum_{τ=i}^t σ[τ]^2)^1/2
   filter = gen_variable[!,:full_id] .== G_NET_GENERAION_FULL_ID
   net_gen = gen_variable[filter,:cf] .* gen_variable[filter,:existing_cap_mw]
   p = 1-ε
-  σ = quantile(Normal(),p)
+  # σ = quantile(Normal(),p)
   μ = (loads[!,:demand] .+ net_gen)
-  μ_2 = μ.*μ
-  D = diagm(μ)
+  var =  get_var(μ , ρ, p, margin) # calculates var[t] for each autocorrolelated X[t] 
+  σ = zeros(size(var,1), size(var,1))
   t_H = diagm(loads[!,:hour])
   i_H = diagm(loads[!,:hour])
-  for i in 1:size(D,1), j in i:size(D,2)
-    D[i,j] = sqrt(sum((μ_2)[i:j]))
+  for i in 1:size(σ,1), j in i:size(σ,2)
+    σ[i,j] = sqrt(sum((var)[i:j])) # σ_Z[t] = (sum_{τ=i}^t σ[τ]^2)^1/2 with var[t] = σ[t]^2
     t_H[i,j] = t_H[i,i] + j-i
     i_H[i,j] = i_H[i,i]
   end
-  normals = Normal.(0, abs.(D)*margin_percentage./σ)
+  normals = Normal.(0, σ)
   r_up = quantile.(normals, p)
-  r_down = -quantile.(normals, 1-p)
+  r_down = -cquantile.(normals, p)
   return DataFrame(
     i_hour = vcat([i_H[i,i:end] for i in 1:size(i_H,1)]...),
     t_hour = vcat([t_H[i,i:end] for i in 1:size(t_H,1)]...),

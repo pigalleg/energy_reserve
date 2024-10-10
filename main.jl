@@ -48,7 +48,8 @@ end
 G_day = 7 # 68
 G_RESERVE = 0.1
 G_ε = 0.025
-G_input_folder = "./input/base_case_increased_storage_energy_v3.1"
+G_ρ = 0
+G_input_folder = "./input/base_case_increased_storage_energy_v4.2"
 # G_REMOVE_RESERVE_CONSTRAINTS = true
 # G_CONSTRAIN_DISPATCH = true
 # G_MAX_ITERATIONS = 100
@@ -82,10 +83,10 @@ config = (
 #     return config
 # end
 
-function load_deterministic_data(day, input_folder; reserve = G_RESERVE, ε = 0)
+function load_deterministic_data(day, input_folder, ε, ρ)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
     # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
-    required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, ε)
+    required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, ε, ρ)
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
 end
@@ -99,7 +100,7 @@ end
 function duc(;kwargs...)
     input_folder = get(kwargs, :input_folder, G_input_folder)
     day = get(kwargs, :day, G_day)
-    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder)
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, G_ε, G_ρ)
     return solve_unit_commitment(
         gen_df,
         loads_multi_df,
@@ -107,7 +108,7 @@ function duc(;kwargs...)
         storage = storage_df,
         # reserve = required_reserve,
         storage_envelopes = true,
-        energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, 0.025),
+        energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, G_ε, G_ρ),
         # energy_reserve = generate_energy_reserves_deprecated(required_reserve),
         # energy_reserve = generate_energy_reserves_cumulative(required_reserve),
         storage_link_constraint = false,        
@@ -119,7 +120,7 @@ function suc(;kwargs...)
     input_folder = get(kwargs, :input_folder, G_input_folder)
     day = get(kwargs, :day, G_day)
     expected_min_SOE = get(kwargs, :expected_min_SOE, false)
-    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder)
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, G_ε, G_ρ)
     scenarios = load_scenarios(day, input_folder, loads_multi_df, required_reserve)
     return solve_unit_commitment(
         gen_df,
@@ -188,7 +189,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     output_folder = get(kwargs, :output_folder, "./output")
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
-    epsilon = get(kwargs, :epsilon, 0.025)
+    ε = get(kwargs, :ε, 0.025)
+    ρ = get(kwargs, :ρ, 0)
     energy_reserve = get(kwargs, :energy_reserve, false)
     alternative_solution = get(kwargs, :alternative_solution, false)
     # μs =  get(kwargs, :μs, nothing)
@@ -211,8 +213,8 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     s_ed = Dict()
     for day in days, k in configurations
 
-        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, ε = epsilon)
-        required_energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, epsilon)
+        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, ε, ρ)
+        required_energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, ε,  ρ)
         if energy_reserve
             config = merge(add_config, generate_configuration(k, storage_df, energy_reserve = required_energy_reserve))
         else

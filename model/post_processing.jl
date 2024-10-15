@@ -177,7 +177,8 @@ function get_enriched_generation(solution, gen_df, gen_variable)
 end
 
 function get_enriched_demand(solution, loads)
-    demand = rename(loads, [ x => "demand_MW" for x in names(loads[!,Not(:hour)])])
+    demand_ = "day" in names(loads) ? select(loads,Not(:day)) : loads
+    demand = rename(demand_, [ x => "demand_MW" for x in names(select(demand_,Not(:hour)))])
     # demand =  rename(loads, :demand => :demand_MW)
     demand.r_id .= missing
     demand.resource .= "total"

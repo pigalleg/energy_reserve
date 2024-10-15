@@ -33,10 +33,12 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
   # Objective function
       # Sum of variable costs + start-up costs for all generators and time periods
       # TODO: add delta_T
+    # Start cost =  start up O&M cost [$/start/MW] * START * CAPACITY [MW]
     @expression(model, StartCost,
         sum(gen_df[gen_df.r_id .== g,:start_cost_per_mw][1]*gen_df[gen_df.r_id .== g,:existing_cap_mw][1]*START[g,t] for g in G_thermal for t in T)
     )
-
+    # Variable cost [$]= (heat rate [MMBtu/MWh] * fuel cost [$/MMBtu] +  variable O&M [$/MWh]) * GEN [MWh] + 
+    # Fixed cost [$]= (fixed O&M [$/MW/h] * capacity [MW] * COMMIT  +  fixed O&M [$/MW/h] * CAPACITY [MW]) * hours [h]
     @expression(model, OperationalCost,
         sum((gen_df[gen_df.r_id .== g,:heat_rate_mmbtu_per_mwh][1]*gen_df[gen_df.r_id .== g,:fuel_cost][1] + gen_df[gen_df.r_id .== g,:var_om_cost_per_mwh][1])*GEN[g,t] for g in G_nonvar for t in T) +
         sum(gen_df[gen_df.r_id .== g,:var_om_cost_per_mwh][1]*GEN[g,t]  for g in G_var for t in T) + 

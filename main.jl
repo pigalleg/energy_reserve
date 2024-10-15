@@ -86,7 +86,14 @@ config = (
 function load_deterministic_data(day, input_folder, ε, ρ)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
     # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
-    required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, ε, ρ)
+    reserve_file = joinpath(input_folder, G_UC_DATA, "Reserve.csv")
+    if isfile(reserve_file)
+        println("Reserve file found, loading reserves...")
+        required_reserve = filter_day(day, CSV.read(reserve_file, DataFrame))
+    else
+        println("Reserve file not found, generating reserves...")
+        required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, ε, ρ)
+    end
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
 end
@@ -105,10 +112,10 @@ function duc(;kwargs...)
         gen_df,
         loads_multi_df,
         gen_variable_multi_df;
-        storage = storage_df,
+        # storage = storage_df,
         # reserve = required_reserve,
-        storage_envelopes = true,
-        energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, G_ε, G_ρ),
+        # storage_envelopes = true,
+        # energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, G_ε, G_ρ),
         # energy_reserve = generate_energy_reserves_deprecated(required_reserve),
         # energy_reserve = generate_energy_reserves_cumulative(required_reserve),
         storage_link_constraint = false,        
@@ -195,7 +202,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     alternative_solution = get(kwargs, :alternative_solution, false)
     # μs =  get(kwargs, :μs, nothing)
     add_config = Dict(
-        # :max_iterations => get(kwargs, :max_iterations, 100),
+        :max_iterations => get(kwargs, :max_iterations, 100),
         # :constrain_dispatch => get(kwargs, :constrain_dispatch, true),
         # :value_reserve => get(kwargs, :value_reserve, 1e-6),
         # :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),

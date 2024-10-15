@@ -6,21 +6,24 @@ using Infiltrator
 include("../pre_processing.jl")
 
 # Functions to randomize demand. Not used by the rest of the code
-function create_random_demand(loads, nb_samples, output_file)
-  # example: create_random_demand(loads, 1000)
-  margin = 0.1
-  q = 0.975
-  factor = quantile(Normal(),q)
-  out = transform(loads, :demand => ByRow(x ->  [rand(Normal(x, abs(x)*margin/factor)) for i in 1:nb_samples]) => ["scenario_$i" for i in 1:nb_samples])
-  select!(out, Not(:demand))
-  CSV.write(output_file, out)
-end
+# function create_random_demand(loads, nb_samples, output_file)
+#   margin = 0.1
+#   q = 0.975
+#   factor = quantile(Normal(),q)
+#   out = transform(loads, :demand => ByRow(x ->  [rand(Normal(x, abs(x)*margin/factor)) for i in 1:nb_samples]) => ["scenario_$i" for i in 1:nb_samples])
+#   select!(out, Not(:demand))
+#   CSV.write(output_file, out)
+# end
 
-function main()
-  input_location = "../../input/base_case_increased_storage_energy_v4.1"
-  gen_info, fuels, loads, gen_variable_info, storage_info = read_data(input_location)
-  # create_random_demand(loads, 100, output_file)
-  create_autocorrelated_demand(loads)
+
+# main("../../input/ercot_brownfield_expansion_v1.0")
+function main(input_location)
+  # input_location = "../../input/ercot_brownfield_expansion_v1.0"
+  gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(nothing, input_location)
+  ρ = 0.8
+  p = 0.975
+  # create_autocorrelated_demand(loads_multi_df, ρ, p) #-->"../../input/base_case_increased_storage_energy_v4.1"
+  create_reserve(random_loads_multi_df, p)
 end
 
 
@@ -48,9 +51,10 @@ function check()
   σ = vec(sqrt.(var))
   normals = Normal.(0, σ)
   percentile_1 = quantile.(normals, p)
-  errors = create_autocorrelated_errors(d; n_errors=n)
+  errors = create_autocorrelated_errors(d, ρ, p; n_errors=n)
   percentile_2 = mapslices(x->quantile(x, p), errors, dims=2)
   @show (percentile_1.-percentile_2)./percentile_1
+  @infiltrate
 end
 
 
@@ -63,7 +67,7 @@ function check2()
   # d = ones(48) # if d (standard deviation) is constant for each day, then corr are the same for each days
   # d[25:46].=2
   n  = 100000
-  errors = create_autocorrelated_errors(d; n_errors=n)
+  errors = create_autocorrelated_errors(d, ρ, p; n_errors=n)
   # errors = reshape(errors,(24,2,n))
   errors = reshape(errors,(24,n,2))
   covar = get_covar(d, ρ, p)
@@ -85,29 +89,30 @@ function check3()
   input_location = "../../input/base_case_increased_storage_energy_v4.1"
   gen_info, fuels, loads, gen_variable_info, storage_info = read_data(input_location)
   n = 10000
-  errors = create_autocorrelated_errors(loads.demand, n_errors = n)
+  ρ = 0.8
+  p = 0.975
+  errors = create_autocorrelated_errors(loads.demand, ρ, p; n_errors = n)
   errors = reshape(errors,(24,365,n))
   # covar = get_covar(d, ρ, p)
   # mvnormal = mapslices(x ->MvNormal(zeros(24),x), covar, dims = [1,2])
   # cov_ = cov.(mvnormal)[1]
   # cor_ = cor.(mvnormal)[1]  
   # empirical_cov = cov(errors, dims = 2)
-  
   empirical_cor =  mapslices(x ->cor(x, dims = 2), errors, dims = [1,2])
   @infiltrate
 end
 
 
-function create_autocorrelated_demand(loads)
+function create_autocorrelated_demand(loads, ρ, p)
   output_file = "random_demand.csv"
-  errors = create_autocorrelated_errors(loads.demand)
+  errors = create_autocorrelated_errors(loads.demand, ρ, p)
   demand =  DataFrame(errors.+ loads.demand, ["demand_$i" for i in 1:size(errors,2)])
   insertcols!(demand,1, :demand => loads.demand)
   insertcols!(demand,1, :hour => loads.hour)
   CSV.write(output_file, demand)
 end
 
-function create_autocorrelated_errors(d; ρ = 0.8, p = 0.975, n_errors = 10000)
+function create_autocorrelated_errors(d, ρ, p; n_errors = 10000)
   covar = get_covar(d, ρ, p)
   mvnormal = mapslices(x ->MvNormal(zeros(24),x), covar, dims = [1,2])
   errors = rand.(mvnormal, n_errors) # n_samples
@@ -115,12 +120,26 @@ function create_autocorrelated_errors(d; ρ = 0.8, p = 0.975, n_errors = 10000)
   return errors
 end
 
+function create_reserve(random_loads, p)
+  select_ = :day in propertynames(random_loads) ? [:hour,:day] : [:hour]
+  errors = transform(random_loads, Not(select_) .=> (x -> x.- random_loads.demand), renamecols = false)
+  select!(errors, Not(:demand))
+  errors = stack(errors, Not(select_))
+  grouped = groupby(errors, select_)
+  reserve = combine(grouped,
+    :value => (x -> quantile(x,p)) => :reserve_up_MW,
+    :value => (x -> -quantile(x,1-p)) => :reserve_down_MW,
+    )
+  CSV.write("Reserve.csv", reserve)
+  @show reserve
+end
+
+
 function get_covar(timeseries, ρ, p)
   var = get_var(timeseries, ρ, p)
   covar = stack([covariance(y,ρ) for y in eachcol(var)])
   return covar
 end
-
 
 function covariance(var, ρ)
   # For autocorrelated errors X[t+1] = ρ*X[t] + (1-ρ^2)^(1/2)*N(0,σ[t])

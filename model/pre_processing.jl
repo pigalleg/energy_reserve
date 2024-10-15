@@ -42,21 +42,37 @@ function generate_input_data(simulation_day, input_location = G_DEFAULT_LOCATION
   gen_df, loads_df, gen_variable_df  = pre_process_load_gen_variable(gen_df, loads_df, pre_process_gen_variable(gen_df, gen_variable_info))
   storage_df = pre_process_storage_data(storage_info)
   random_loads_df = read_random_demand(input_location)
-  return gen_df, 
-    filter_periods(simulation_day, loads_df),
-    filter_periods(simulation_day, gen_variable_df),
-    storage_df,
-    filter_periods(simulation_day, random_loads_df)
+  if !isnothing(simulation_day)
+    return gen_df, 
+      filter_day(simulation_day, loads_df),
+      filter_day(simulation_day, gen_variable_df),
+      storage_df,
+      filter_day(simulation_day, random_loads_df)
+  else
+    return gen_df, loads_df, gen_variable_df, storage_df, random_loads_df
+  end
 end
 
 function filter_periods(simulation_day, df)
+  # deprecated
   T_period = (simulation_day*24+1):((simulation_day+1)*24)
   # Filtering data with timeseries according to T_period
   return df[in.(df.hour,Ref(T_period)),:]
 end
 
+function filter_day(simulation_day, df)
+  if :day in propertynames(df)
+    return df[in.(df.day,simulation_day),:]
+  else
+    T_period = ((simulation_day-1)*24+1):(((simulation_day-1)+1)*24)
+    return df[in.(df.hour,Ref(T_period)),:]
+  end
+end
+
+
 function filter_demand(expected_load, loads_to_filter, required_reserve)
-  return transform(loads_to_filter, Not(:hour) .=> (x -> clamp.(x, expected_load.demand .- required_reserve.reserve_down_MW, expected_load.demand .+ required_reserve.reserve_up_MW)) .=> Not(:hour))
+  select = :day in propertynames(loads_to_filter) ? [:hour,:day] : [:hour]
+  return transform(loads_to_filter, Not(select) .=> (x -> clamp.(x, expected_load.demand .- required_reserve.reserve_down_MW, expected_load.demand .+ required_reserve.reserve_up_MW)) .=> Not(select))
 end
 
 function read_data(input_location = G_DEFAULT_LOCATION; shift_timezone = false)
@@ -171,8 +187,13 @@ function read_probability_scenarios(input_location)
 end
 
 function generate_scenarios_data(simulation_day, input_location = G_DEFAULT_LOCATION)
-  return (demand = filter_periods(simulation_day, read_demand_scenarios(input_location)), probability = read_probability_scenarios(input_location))
+  return (demand = filter_day(simulation_day, read_demand_scenarios(input_location)), probability = read_probability_scenarios(input_location))
 end
+
+function read_reserve(input_location = G_DEFAULT_LOCATION)
+  return CSV.read(joinpath(input_location, G_UC_DATA, "Reserve.csv"), DataFrame), Not[:day]
+end
+
 
 function read_parquet_and_convert(file)
   columns_to_symbol = [:configuration, :iteration]

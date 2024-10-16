@@ -5,6 +5,7 @@ include("./model/unit_commitment/unit_commitment.jl")
 include("./model/economic_dispatch.jl")
 # include("./notebooks/plotting.jl")
 include("./notebooks/processing.jl")
+include("./debugging_ignore.jl")
 
 # __revise_mode__ = :eval
 # ENV["COLUMNS"]=120 # Set so all columns of DataFrames and Matrices are displayed
@@ -112,13 +113,15 @@ function duc(;kwargs...)
         gen_df,
         loads_multi_df,
         gen_variable_multi_df;
-        # storage = storage_df,
-        # reserve = required_reserve,
-        # storage_envelopes = true,
+        storage = storage_df,
+        reserve = required_reserve,
+        storage_envelopes = true,
         # energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, G_ε, G_ρ),
         # energy_reserve = generate_energy_reserves_deprecated(required_reserve),
         # energy_reserve = generate_energy_reserves_cumulative(required_reserve),
-        storage_link_constraint = false,        
+        storage_link_constraint = false,
+        μ_up = get(kwargs, :μ_up, 1),
+        μ_dn = get(kwargs, :μ_dn, 1),
         config...
         )
 end

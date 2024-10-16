@@ -16,16 +16,83 @@ include("../pre_processing.jl")
 # end
 
 
-# main("../../input/ercot_brownfield_expansion_v1.0")
-function main(input_location)
+# generate_autocorrelated_demand_file("../../input/ercot_brownfield_expansion_v1.0")
+function generate_autocorrelated_demand_file(input_location)
   # input_location = "../../input/ercot_brownfield_expansion_v1.0"
-  gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(nothing, input_location)
+  # gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(nothing, input_location)
+  loads_df = CSV.read(joinpath(input_location, "uc", "Demand.csv"), DataFrame)
   ρ = 0.8
   p = 0.975
-  # create_autocorrelated_demand(loads_multi_df, ρ, p) #-->"../../input/base_case_increased_storage_energy_v4.1"
-  create_reserve(random_loads_multi_df, p)
+  create_autocorrelated_demand(loads_df, ρ, p) #-->"../../input/base_case_increased_storage_energy_v4.1"
 end
 
+function generate_reserve_file(input_location)
+  random_load = CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
+  p = 0.975
+  create_reserve(random_load, p)
+end
+
+function create_autocorrelated_demand(loads, ρ, p)
+  output_file = "random_demand.csv"
+  errors = create_autocorrelated_errors(loads.demand, ρ, p)
+  demand =  DataFrame(errors.+ loads.demand, ["demand_$i" for i in 1:size(errors,2)])
+  insertcols!(demand,1, :demand => loads.demand)
+  insertcols!(demand,1, :hour => loads.hour)
+  if :day in propertynames(loads)
+    insertcols!(demand,1, :day => loads.day)
+  end
+  CSV.write(output_file, demand)
+end
+
+function create_autocorrelated_errors(d, ρ, p; n_errors = 10000)
+  covar = get_covar(d, ρ, p)
+  mvnormal = mapslices(x ->MvNormal(zeros(24),x), covar, dims = [1,2])
+  errors = rand.(mvnormal, n_errors) # n_samples
+  errors = vcat(errors...)
+  return errors
+end
+
+function create_reserve(random_loads, p)
+  select_ = :day in propertynames(random_loads) ? [:hour,:day] : [:hour]
+  errors = transform(random_loads, Not(select_) .=> (x -> x.- random_loads.demand), renamecols = false)
+  select!(errors, Not(:demand))
+  errors = stack(errors, Not(select_))
+  grouped = groupby(errors, select_)
+  reserve = combine(grouped,
+    :value => (x -> quantile(x,p)) => :reserve_up_MW,
+    :value => (x -> -quantile(x,1-p)) => :reserve_down_MW,
+    )
+  CSV.write("Reserve.csv", reserve)
+  @show reserve
+end
+
+
+function get_covar(timeseries, ρ, p)
+  var = get_var(timeseries, ρ, p)
+  covar = stack([covariance(y,ρ) for y in eachcol(var)])
+  return covar
+end
+
+function covariance(var, ρ)
+  # For autocorrelated errors X[t+1] = ρ*X[t] + (1-ρ^2)^(1/2)*N(0,σ[t])
+  # then cov(X[t],X[t+1]) = ρ*cov(X[t],X[t])
+  covar = Matrix(Diagonal(var))
+  for i in 1:(size(covar, 1)),j = (i+1):(size(covar, 2))
+    covar[i,j] =  ρ * covar[i,j-1]
+    covar[j,i] = covar[i,j]
+  end
+  return covar
+end
+
+function correlation(cov, ρ)
+  # by definition of corr
+  cor = copy(cov)
+  for i in 1:(size(cor, 1)),j = (i):(size(cor, 2))
+    cor[i,j] =  cov[i,j]/sqrt(cov[i,i]*cov[j,j])
+    cor[j,i] = cor[i,j]
+  end 
+  return cor
+end
 
 function test(loads, q=0.975)
   margin = 0.1
@@ -40,7 +107,7 @@ function test(loads, q=0.975)
   # q = 0.025 --> e = 0.025
 end
 
-function check()
+function check1()
   input_location = "../../input/base_case_increased_storage_energy_v4.1"
   gen_info, fuels, loads, gen_variable_info, storage_info = read_data(input_location)
   ρ = 0.8
@@ -100,64 +167,4 @@ function check3()
   # empirical_cov = cov(errors, dims = 2)
   empirical_cor =  mapslices(x ->cor(x, dims = 2), errors, dims = [1,2])
   @infiltrate
-end
-
-
-function create_autocorrelated_demand(loads, ρ, p)
-  output_file = "random_demand.csv"
-  errors = create_autocorrelated_errors(loads.demand, ρ, p)
-  demand =  DataFrame(errors.+ loads.demand, ["demand_$i" for i in 1:size(errors,2)])
-  insertcols!(demand,1, :demand => loads.demand)
-  insertcols!(demand,1, :hour => loads.hour)
-  CSV.write(output_file, demand)
-end
-
-function create_autocorrelated_errors(d, ρ, p; n_errors = 10000)
-  covar = get_covar(d, ρ, p)
-  mvnormal = mapslices(x ->MvNormal(zeros(24),x), covar, dims = [1,2])
-  errors = rand.(mvnormal, n_errors) # n_samples
-  errors = vcat(errors...)
-  return errors
-end
-
-function create_reserve(random_loads, p)
-  select_ = :day in propertynames(random_loads) ? [:hour,:day] : [:hour]
-  errors = transform(random_loads, Not(select_) .=> (x -> x.- random_loads.demand), renamecols = false)
-  select!(errors, Not(:demand))
-  errors = stack(errors, Not(select_))
-  grouped = groupby(errors, select_)
-  reserve = combine(grouped,
-    :value => (x -> quantile(x,p)) => :reserve_up_MW,
-    :value => (x -> -quantile(x,1-p)) => :reserve_down_MW,
-    )
-  CSV.write("Reserve.csv", reserve)
-  @show reserve
-end
-
-
-function get_covar(timeseries, ρ, p)
-  var = get_var(timeseries, ρ, p)
-  covar = stack([covariance(y,ρ) for y in eachcol(var)])
-  return covar
-end
-
-function covariance(var, ρ)
-  # For autocorrelated errors X[t+1] = ρ*X[t] + (1-ρ^2)^(1/2)*N(0,σ[t])
-  # then cov(X[t],X[t+1]) = ρ*cov(X[t],X[t])
-  covar = Matrix(Diagonal(var))
-  for i in 1:(size(covar, 1)),j = (i+1):(size(covar, 2))
-    covar[i,j] =  ρ * covar[i,j-1]
-    covar[j,i] = covar[i,j]
-  end
-  return covar
-end
-
-function correlation(cov, ρ)
-  # by definition of corr
-  cor = copy(cov)
-  for i in 1:(size(cor, 1)),j = (i):(size(cor, 2))
-    cor[i,j] =  cov[i,j]/sqrt(cov[i,i]*cov[j,j])
-    cor[j,i] = cor[i,j]
-  end 
-  return cor
 end

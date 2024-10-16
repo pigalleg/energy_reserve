@@ -441,7 +441,7 @@ function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; k
     kwargs = Dict(kwargs)
     for k in first(propertynames(loads[!, Not(HOUR)]), max_iterations)
         println("")
-        println("Montecarlo iteration: $(k)")
+        println("Montecarlo iteration: $k")
         gen_df_k, loads_df_k, gen_variable_k = pre_process_load_gen_variable(gen_df, rename(loads[!,[HOUR,k]], k=>DEMAND), gen_variable)
         update_demand(ed, loads_df_k)
         update_generation(ed, gen_variable_k)

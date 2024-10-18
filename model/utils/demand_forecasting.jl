@@ -32,6 +32,13 @@ function generate_reserve_file(input_location)
   create_reserve(random_load, p)
 end
 
+function generate_energy_reserve_file(input_location)
+  random_load = CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
+  p = 0.975
+  create_energy_reserve(random_load, p)
+end
+
+
 function create_autocorrelated_demand(loads, ρ, p)
   output_file = "random_demand.csv"
   errors = create_autocorrelated_errors(loads.demand, ρ, p)
@@ -64,6 +71,38 @@ function create_reserve(random_loads, p)
     )
   CSV.write("Reserve.csv", reserve)
   @show reserve
+end
+
+function create_energy_reserve(random_loads, p)
+  # It needs :day in random_loads
+  # tuples_ij(hour) = [(i_hour = i, t_hour = t) for i in hour, t in hour if i<=t] 
+  # percentile_ij_(hour, value) = [sum((i.<=hour .* hour.<=t).*value) for i in unique(hour), t in unique(hour) if i<=t] 
+  function aux_(i_hour, df, p)
+    df_ = []
+    reserve_up_ = []
+    reserve_down_ = []
+    i_ = []
+    t_= []
+    for t_hour in df.hour if t_hour >= i_hour
+          push!(i_, i_hour)
+          push!(t_, t_hour)
+        if t_hour == i_hour
+          push!(df_, df[df.hour.== t_hour, Not([:hour,:day])])
+        else
+          push!(df_, df[df.hour.== t_hour, Not([:hour,:day])] .+ last(df_))
+        end
+        push!(reserve_up_, quantile(last(df_)[1,:], p))
+        push!(reserve_down_, -quantile(last(df_)[1, :], 1-p))
+      end
+    end
+    return (i_hour = i_, t_hour = t_, reserve_up_MW = reserve_up_, reserve_down_MW = reserve_down_)
+  end
+  errors = transform(random_loads, Not([:hour,:day]) .=> (x -> x.- random_loads.demand), renamecols = false)
+  select!(errors, Not(:demand))
+  energy_reserve = combine(groupby(errors, [:day]), AsTable(:) => (x -> [aux_(i, DataFrame(x), p) for i in x.hour]) => AsTable)
+  energy_reserve = combine(groupby(energy_reserve, [:day]), Not(:day) .=> (x -> reduce(vcat,x)),  renamecols = false)
+  CSV.write("Energy reserve.csv", energy_reserve)
+  @show energy_reserve
 end
 
 

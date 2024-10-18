@@ -86,16 +86,27 @@ config = (
 function load_deterministic_data(day, input_folder, ε, ρ)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
     # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
-    reserve_file = joinpath(input_folder, G_UC_DATA, "Reserve.csv")
-    if isfile(reserve_file)
+    file = joinpath(input_folder, G_UC_DATA, "Reserve.csv")
+    if isfile(file)
         println("Reserve file found, loading reserves...")
-        required_reserve = filter_day(day, CSV.read(reserve_file, DataFrame))
+        required_reserve = filter_day(day, CSV.read(file, DataFrame))
     else
         println("Reserve file not found, generating reserves...")
         required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, ε, ρ)
     end
     random_loads_multi_df = filter_demand(loads_multi_df, random_loads_multi_df, required_reserve)
     return gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve
+end
+
+function load_energy_reserve(day, input_folder, loads_multi_df, gen_variable_multi_df, ε, ρ)
+    file = joinpath(input_folder, G_UC_DATA, "Energy reserve.csv")
+    if isfile(file)
+        println("Energy reserve file found, loading reserves...")
+        return filter_day(day, CSV.read(file, DataFrame))
+    else
+        println("Energy reserve file not found, generating reserves...")
+        return  generate_energy_reserves(loads_multi_df, gen_variable_multi_df, ε, ρ)
+    end
 end
 
 function load_scenarios(day, input_folder, loads_multi_df, required_reserve)
@@ -115,7 +126,7 @@ function duc(;kwargs...)
         storage = storage_df,
         reserve = required_reserve,
         storage_envelopes = true,
-        # energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, G_ε, G_ρ),
+        # energy_reserve = load_energy_reserve(day, input_folder, loads_multi_df, gen_variable_multi_df, G_ε, G_ρ)
         # energy_reserve = generate_energy_reserves_deprecated(required_reserve),
         # energy_reserve = generate_energy_reserves_cumulative(required_reserve),
         storage_link_constraint = false,
@@ -223,7 +234,7 @@ function generate_ed_solutions_(days, configurations; kwargs...)
     for day in days, k in configurations
 
         gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, ε, ρ)
-        required_energy_reserve = generate_energy_reserves(loads_multi_df, gen_variable_multi_df, ε,  ρ)
+        required_energy_reserve = load_energy_reserve(day, input_folder, loads_multi_df, gen_variable_multi_df, ε, ρ)
         if energy_reserve
             config = merge(add_config, generate_configuration(k, storage_df, energy_reserve = required_energy_reserve))
         else

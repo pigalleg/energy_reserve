@@ -281,10 +281,12 @@ function generate_ed_solutions(;days, kwargs...)
         return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
     end
     folders = get(kwargs, :folders, [(get(kwargs, :input_folder, G_input_folder), get(kwargs, :output_folder, "./output"))])
-    for (input_folder, output_folder) in folders, day in days
-        generate_ed_solutions_([day], input_folder, output_folder, generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
+    for (input_folder, output_folder) in folders
+        for day in days
+            generate_ed_solutions_([day], input_folder, output_folder,      generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
+        end
+        generate_post_processing_KPI_files(output_folder)
     end
-    generate_post_processing_KPI_files(get(kwargs, :output_folder, nothing))
 end
 
 function merge_ed_solutions(solution_folders, folder_path, read = true, write = false)

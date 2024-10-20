@@ -16,31 +16,31 @@ include("../pre_processing.jl")
 # end
 
 
-# generate_autocorrelated_demand_file("../../input/ercot_brownfield_expansion_v1.0")
-function generate_autocorrelated_demand_file(input_location)
-  # input_location = "../../input/ercot_brownfield_expansion_v1.0"
-  # gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(nothing, input_location)
+
+function generate_autocorrelated_demand_file(input_location, ρ)
+  println("Generating autocorrelated demand file with ρ = $ρ")
+  # generate_autocorrelated_demand_file("../../input/ercot_brownfield_expansion_v1.0")
   loads_df = CSV.read(joinpath(input_location, "uc", "Demand.csv"), DataFrame)
-  ρ = 0.8
   p = 0.975
-  create_autocorrelated_demand(loads_df, ρ, p) #-->"../../input/base_case_increased_storage_energy_v4.1"
+  create_autocorrelated_demand(loads_df, ρ, p, input_location) #-->"../../input/base_case_increased_storage_energy_v4.1"
 end
 
 function generate_reserve_file(input_location)
+  println("Generating reserve file")  
   random_load = CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
   p = 0.975
-  create_reserve(random_load, p)
+  create_reserve(random_load, p, input_location)
 end
 
 function generate_energy_reserve_file(input_location)
+  println("Generating energy reserve file")
   random_load = CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
   p = 0.975
   create_energy_reserve(random_load, p)
 end
 
 
-function create_autocorrelated_demand(loads, ρ, p)
-  output_file = "random_demand.csv"
+function create_autocorrelated_demand(loads, ρ, p, output_location = nothing)
   errors = create_autocorrelated_errors(loads.demand, ρ, p)
   demand =  DataFrame(errors.+ loads.demand, ["demand_$i" for i in 1:size(errors,2)])
   insertcols!(demand,1, :demand => loads.demand)
@@ -48,10 +48,17 @@ function create_autocorrelated_demand(loads, ρ, p)
   if :day in propertynames(loads)
     insertcols!(demand,1, :day => loads.day)
   end
+
+  if !isnothing(output_location)
+    output_file = joinpath(output_location, "ed", "random_demand.csv")
+  else  
+    output_file = "random_demand.csv"
+  end
+  println("Saving random demand file at $output_file")
   CSV.write(output_file, demand)
 end
 
-function create_autocorrelated_errors(d, ρ, p; n_errors = 10000)
+function create_autocorrelated_errors(d, ρ, p; n_errors = 1000)
   covar = get_covar(d, ρ, p)
   mvnormal = mapslices(x ->MvNormal(zeros(24),x), covar, dims = [1,2])
   errors = rand.(mvnormal, n_errors) # n_samples
@@ -59,7 +66,7 @@ function create_autocorrelated_errors(d, ρ, p; n_errors = 10000)
   return errors
 end
 
-function create_reserve(random_loads, p)
+function create_reserve(random_loads, p, output_location = nothing) 
   select_ = :day in propertynames(random_loads) ? [:hour,:day] : [:hour]
   errors = transform(random_loads, Not(select_) .=> (x -> x.- random_loads.demand), renamecols = false)
   select!(errors, Not(:demand))
@@ -69,11 +76,16 @@ function create_reserve(random_loads, p)
     :value => (x -> quantile(x,p)) => :reserve_up_MW,
     :value => (x -> -quantile(x,1-p)) => :reserve_down_MW,
     )
-  CSV.write("Reserve.csv", reserve)
-  @show reserve
+  if !isnothing(output_location)
+    output_file = joinpath(output_location, "uc", "Reserve.csv")
+  else  
+    output_file = "Reserve.csv"
+  end 
+  println("Saving reserve file at $output_file")
+  CSV.write(output_file, reserve)
 end
 
-function create_energy_reserve(random_loads, p)
+function create_energy_reserve(random_loads, p, output_location = nothing)
   # It needs :day in random_loads
   # tuples_ij(hour) = [(i_hour = i, t_hour = t) for i in hour, t in hour if i<=t] 
   # percentile_ij_(hour, value) = [sum((i.<=hour .* hour.<=t).*value) for i in unique(hour), t in unique(hour) if i<=t] 
@@ -101,8 +113,13 @@ function create_energy_reserve(random_loads, p)
   select!(errors, Not(:demand))
   energy_reserve = combine(groupby(errors, [:day]), AsTable(:) => (x -> [aux_(i, DataFrame(x), p) for i in x.hour]) => AsTable)
   energy_reserve = combine(groupby(energy_reserve, [:day]), Not(:day) .=> (x -> reduce(vcat,x)),  renamecols = false)
-  CSV.write("Energy reserve.csv", energy_reserve)
-  @show energy_reserve
+  if !isnothing(output_location)
+    output_file = joinpath(output_location, "uc", "Energy reserve.csv")
+  else  
+    output_file = "Energy reserve.csv"
+  end 
+  println("Saving energy reserve file at $output_file")
+  CSV.write(output_file, energy_reserve)
 end
 
 

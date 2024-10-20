@@ -51,13 +51,13 @@ end
 function get_solution(model)
     return merge(
         get_solution_variables(model),
-        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model), OPEX = value(model[:OPEX])),)
+        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model), OPEX = value(model[:OPEX]), MIPGap = get_optimizer_attribute(model,"MIPGap")),)
         # (objective_value = objective_value(model), termination_status = termination_status(model))
     )
 end
 
 function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC]
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :START, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC]
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
@@ -83,6 +83,7 @@ function enrich_dfs(solution, gen_df, loads, gen_variable, storage)
         out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
     end
     out[:demand] = get_enriched_demand(solution, loads)
+    # out[:objective_value] = get_enriched_objective_value(out, gen_df, storage)
     # out[:constraints] = get_constraints(solution)
     return NamedTuple(out)
 end
@@ -163,10 +164,12 @@ function get_enriched_generation(solution, gen_df, gen_variable)
     curtail = innerjoin(gen_variable, solution.GEN, on = [:r_id, :hour])
     curtail.value = curtail.cf .* curtail.existing_cap_mw - curtail.value
     aux = outerjoin(
-        outerjoin(
+        outerjoin(  
             rename(solution.GEN, :value => :production_MW),
             rename(curtail[!,[:r_id, :hour, :value]], :value => :curtailment_MW),
             rename(solution.COMMIT, :value => :commit),
+            rename(solution.START, :value => :start),
+            rename(solution.SHUT, :value => :shut),
             on = [:r_id, :hour]
         ),
         gen_df[!,FIELD_FOR_ENRICHING],
@@ -201,6 +204,47 @@ function get_enriched_demand(solution, loads)
         replace!(demand.LGEN_MW, missing => 0)
     end
     return demand
+end
+
+function get_enriched_objective_value(enriched_solution, gen_df, storage)
+    within_MIPGap(x,y) = abs((x-y)/x) < enriched_solution[:scalar].MIPGap[1]
+    # start-up cost
+    cost_fields = [:start_cost_per_mw, :existing_cap_mw, :heat_rate_mmbtu_per_mwh, :fuel_cost, :var_om_cost_per_mwh, :fixed_om_cost_per_mw_per_hour]
+    fields_to_remove = [:production_MW, :curtailment_MW, :commit, :start]
+    cost = leftjoin(
+        enriched_solution[:generation],
+        gen_df[!,union(cost_fields, [:r_id])],
+        on = [:r_id]
+        )
+
+    cost.start_cost = cost.start_cost_per_mw .* cost.existing_cap_mw .* cost.start
+    cost.production_cost = 
+        (cost.heat_rate_mmbtu_per_mwh .* cost.fuel_cost + cost.var_om_cost_per_mwh) .* cost.production_MW +
+        cost.fixed_om_cost_per_mw_per_hour .* cost.existing_cap_mw .* replace(cost.commit, missing => 1)
+    select!(cost,Not(union(cost_fields,fields_to_remove)))
+    
+    if !isnothing(storage)
+        cost_fields = [:var_om_cost_per_mwh]
+        fields_to_remove = [:charge_MW, :discharge_MW, :SOE_MWh, :envelope_up_MWh,:envelope_down_MWh]
+        storage_cost = leftjoin(
+            enriched_solution[:storage],
+            storage[!,union(cost_fields, [:r_id])],
+            on = [:r_id]
+        )
+        storage_cost.production_cost =  (storage_cost.charge_MW + storage_cost.discharge_MW) .* storage_cost.var_om_cost_per_mwh
+        
+        select!(storage_cost, Not(union(cost_fields,fields_to_remove)))
+        cost = vcat(cost, storage_cost, cols=:union)
+        # cost = leftjoin(cost, storage_cost, on = [:r_id, :hour])
+        #enriched_solution[:scalar].OPEX == sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))
+
+    end
+    if !within_MIPGap(enriched_solution[:scalar].OPEX[1], sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))) 
+        error("Start and operational missmatch with OPEX")
+    end
+
+    
+    return cost
 end
 
 function get_generation_parameters(gen_df)

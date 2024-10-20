@@ -199,14 +199,11 @@ function ed_multi_demand_net_demand()
     return solution
 end
 
-function generate_ed_solutions_(days, configurations; kwargs...)
-
+function generate_ed_solutions_(days, input_folder, output_folder, configurations; kwargs...)
     function get_reference_configuration(k, configurations)
         i = first(findall(x->x == k , configurations))
         return i > 1 ?  getindex(configurations, i-1) : nothing
     end
-    input_folder = get(kwargs, :input_folder, G_input_folder)
-    output_folder = get(kwargs, :output_folder, "./output")
     write = get(kwargs, :write, true)
     reserve = get(kwargs, :reserve, 0.1)
     ε = get(kwargs, :ε, 0.025)
@@ -283,8 +280,9 @@ function generate_ed_solutions(;days, kwargs...)
         mu_to_string(x) = isinteger(x) ? string(Int(x)) : replace(string(x), "." => "_")
         return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
     end
-    for day in days
-        generate_ed_solutions_([day], generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
+    folders = get(kwargs, :folders, [(get(kwargs, :input_folder, G_input_folder), get(kwargs, :output_folder, "./output"))])
+    for (input_folder, output_folder) in folders, day in days
+        generate_ed_solutions_([day], input_folder, output_folder, generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
     end
     generate_post_processing_KPI_files(get(kwargs, :output_folder, nothing))
 end

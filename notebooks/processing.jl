@@ -146,6 +146,7 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
       s_ed_scalar, 
       rename(s_uc.scalar[:, Not(:termination_status)], [:objective_value =>:objective_value_uc, :OPEX => :OPEX_uc]),
       on = setdiff(propertynames(s_ed_scalar), [:objective_value, :iteration, :OPEX]))
+  
   # relative difference with respect to s_uc
   s_ed_scalar.Δobjective_value = s_ed_scalar.objective_value .- s_ed_scalar.objective_value_uc
   s_ed_scalar.Δobjective_value_relative = (s_ed_scalar.objective_value .- s_ed_scalar.objective_value_uc)./s_ed_scalar.objective_value_uc
@@ -156,6 +157,7 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   leftjoin!(gcdi_KPI, s_ed_scalar, on = group_by_big)
   transform!(gcdi_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcdi_KPI, :mu)
+  @infiltrate
   return gcdi_KPI
 end
 
@@ -182,6 +184,7 @@ function calculate_adecuacy_gcd_KPI(gcdi_KPI, group_by = [:configuration, :day])
   end
   transform!(gcd_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcd_KPI, :mu)
+  @infiltrate
   return gcd_KPI
 end
 

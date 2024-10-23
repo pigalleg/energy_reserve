@@ -9,6 +9,7 @@ function DUC(gen_df, loads, gen_variable, mip_gap)
     
     model = Model(Gurobi.Optimizer)
     set_optimizer_attribute(model, "MIPGap", mip_gap)
+    @variable(model, MIPGap in Parameter(mip_gap))
     # set_optimizer_attribute(model, "LogFile", "./output/log_file.txt")
     set_optimizer_attribute(model, "OutputFlag", 0)
     # model = Model(HiGHS.Optimizer)
@@ -279,9 +280,11 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
         RESUP[G_reserve, T] >= 0
         RESDN[G_reserve, T] >= 0
     end)
+    
     @objective(model, Min, 
         objective_function(model) + VRESERVE*sum(RESUP[g,t] for g in G_reserve, t in T) + VRESERVE*sum(RESDN[g,t] for g in G_reserve, t in T)
     )
+    @variable(model, VRESERVE in Parameter(VRESERVE)) # used for output purposes
 
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, ResUpThermal[g in G_thermal, t in T],
@@ -446,6 +449,8 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
     @objective(model, Min, 
         objective_function(model) + VRESERVE*sum(ERESUP[g,t,t] for g in G_reserve, t in T) + VRESERVE*sum(ERESDN[g,t,t] for g in G_reserve, t in T)
     )
+
+    @variable(model, VRESERVE in Parameter(VRESERVE)) # used for output purposes
 
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, EnergyResUpThermal[g in G_thermal, j in T, t in T; j <= t],

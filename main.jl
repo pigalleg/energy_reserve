@@ -83,7 +83,7 @@ config = (
 #     return config
 # end
 
-function load_deterministic_data(day, input_folder, ε, ρ)
+function load_deterministic_data(day, input_folder, ε=nothing, ρ=nothing)
     gen_df, loads_multi_df, gen_variable_multi_df, storage_df, random_loads_multi_df = generate_input_data(day, input_folder)
     # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
     file = joinpath(input_folder, G_UC_DATA, "Reserve.csv")
@@ -124,9 +124,9 @@ function duc(;kwargs...)
         loads_multi_df,
         gen_variable_multi_df;
         storage = storage_df,
-        reserve = required_reserve,
+        # reserve = required_reserve,
         storage_envelopes = true,
-        # energy_reserve = load_energy_reserve(day, input_folder, loads_multi_df, gen_variable_multi_df, G_ε, G_ρ)
+        # energy_reserve = load_energy_reserve(day, input_folder, loads_multi_df, gen_variable_multi_df, G_ε, G_ρ),
         # energy_reserve = generate_energy_reserves_deprecated(required_reserve),
         # energy_reserve = generate_energy_reserves_cumulative(required_reserve),
         storage_link_constraint = false,
@@ -155,10 +155,14 @@ function suc(;kwargs...)
 
 end
 
-function ed()
-    solution  = solve_economic_dispatch(
+function ed(;kwargs...)
+    input_folder = get(kwargs, :input_folder, G_input_folder)
+    day = get(kwargs, :day, G_day)
+    gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, G_ε, G_ρ)
+    solution  = solve_economic_dispatch_get_solution(
+        duc(;kwargs...),
         gen_df,
-        loads_multi_df,
+        random_loads_multi_df,
         gen_variable_multi_df;
         config...
         )
@@ -283,7 +287,7 @@ function generate_ed_solutions(;days, kwargs...)
     folders = get(kwargs, :folders, [(get(kwargs, :input_folder, G_input_folder), get(kwargs, :output_folder, "./output"))])
     for (input_folder, output_folder) in folders
         for day in days
-            generate_ed_solutions_([day], input_folder, output_folder,      generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
+            generate_ed_solutions_([day], input_folder, output_folder, generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
         end
         generate_post_processing_KPI_files(output_folder)
     end
@@ -291,7 +295,7 @@ end
 
 function merge_ed_solutions(solution_folders, folder_path, read = true, write = false)
     if read
-        keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar]
+        keys = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :objective_function]
         s_uc = [parquet_to_solution("s_uc", joinpath(folder_path, s)) for s in solution_folders]
         s_ed = [parquet_to_solution("s_ed", joinpath(folder_path, s)) for s in solution_folders]
         s_uc = NamedTuple(k => vcat([s[k] for s in s_uc if haskey(s, k)]...) for k in keys)
@@ -331,7 +335,14 @@ function generate_post_processing_KPI_files(folder_path, folders_to_read_ = noth
         folders_to_read = intersect(folders_to_read_, folders_to_read)
         out_name = join(folders_to_read, "_")
     end
-    keys = [:gcdi_KPI_adequacy, :gcd_KPI_adequacy, :KPI_reserve, :gcdi_KPI_reserve, :gcd_KPI_reserve]
+    keys = [
+        :gcdi_KPI_adequacy,
+        :gcd_KPI_adequacy,
+        :KPI_reserve,
+        :gcdi_KPI_reserve,
+        :gcd_KPI_reserve,
+        ]
+
     values = vcat.([KPI_df_list(folders, folder_path) for folders in chunk_list_custom(folders_to_read, chunk_size)]...)
     out = NamedTuple(k => v for (k,v) in zip(keys, values))
    

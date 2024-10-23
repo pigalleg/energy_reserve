@@ -49,7 +49,7 @@ function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool
     # set_optimizer_attribute(ed, "OutputFlag", 0)
     # set_optimizer_attribute(ed, "MIPGap", get_optimizer_attribute(uc,"MIPGap"))
     # optimize!(ed)
-    ed = uc # pointer, uc object will change
+    ed = uc # pointer, uc object will change   
     add_envelopes_UC(ed)
     constrain_decision_variables(ed, constrain_SOE_by_envelopes, constrain_dispatch, bidirectional_storage_reserve, remove_variables_from_objective, variables_to_constrain)
     constraint_SOE_final_to_envelopes_UC(ed) # redundant when constrain_SOE_by_envelopes == true
@@ -61,6 +61,8 @@ function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool
     @objective(ed, Min, 
         objective_function(ed) + sum(LOL[t]*VLOL[t] + LGEN[t]*VLGEN[t] for t in T)
     )
+    @variable(ed, VLOL[t in keys(VLOL)] in Parameter(VLOL[t]))
+    @variable(ed, VLGEN[t in keys(VLGEN)] in Parameter(VLGEN[t]))
     # @constraint(ed,
     #     sum(LOL[t] for t in T) == 0 
     # )

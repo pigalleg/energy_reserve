@@ -51,7 +51,7 @@ end
 function get_solution(model)
     return merge(
         get_solution_variables(model),
-        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model), OPEX = value(model[:OPEX]), MIPGap = get_optimizer_attribute(model,"MIPGap")),)
+        (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model), OPEX = value(model[:OPEX])),)
         # (objective_value = objective_value(model), termination_status = termination_status(model))
     )
 end
@@ -61,9 +61,8 @@ function get_solution_variables(model)
     return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
-function enrich_dfs(solution, gen_df, loads, gen_variable, storage)
+function enrich_dfs(solution, gen_df, loads, gen_variable, storage, parameters)
     #TODO: deal with missing values
-    # Curtailment calculation
     # out = Dict(pairs(solution[[:objective_value, :termination_status]]))
     out = Dict(pairs(solution[[:scalar]]))
     # out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
@@ -83,7 +82,7 @@ function enrich_dfs(solution, gen_df, loads, gen_variable, storage)
         out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
     end
     out[:demand] = get_enriched_demand(solution, loads)
-    # out[:objective_value] = get_enriched_objective_value(out, gen_df, storage)
+    out[:objective_function] = get_enriched_objective_value(out, gen_df, storage,parameters)
     # out[:constraints] = get_constraints(solution)
     return NamedTuple(out)
 end
@@ -206,11 +205,26 @@ function get_enriched_demand(solution, loads)
     return demand
 end
 
-function get_enriched_objective_value(enriched_solution, gen_df, storage)
-    within_MIPGap(x,y) = abs((x-y)/x) < enriched_solution[:scalar].MIPGap[1]
-    # start-up cost
+function get_enriched_objective_value(enriched_solution, gen_df, storage, parameters)
+    function check()
+        within_MIPGap(x,y,tolerance) = abs((x-y)/x) <= tolerance
+        sum_cost = sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))
+        if !within_MIPGap(enriched_solution[:scalar].OPEX[1], sum_cost , parameters.MIPGap) 
+            error("Start and operational cost missmatch with OPEX")
+        end
+        if :reserve_value in propertynames(cost)
+            sum_cost += sum(skipmissing(cost.reserve_value))
+        end
+        if :losses_cost in propertynames(cost)
+            sum_cost += sum(skipmissing(cost.losses_cost))  
+        end
+        if !within_MIPGap(enriched_solution[:scalar].objective_value[1], sum_cost, parameters.MIPGap) 
+            error("Start, operational cost and reserve penalization missmatch with objective value")
+        end
+    end
+   
     cost_fields = [:start_cost_per_mw, :existing_cap_mw, :heat_rate_mmbtu_per_mwh, :fuel_cost, :var_om_cost_per_mwh, :fixed_om_cost_per_mw_per_hour]
-    fields_to_remove = [:production_MW, :curtailment_MW, :commit, :start]
+    fields_to_remove = [:production_MW, :curtailment_MW, :commit, :start, :full_id, :shut]
     cost = leftjoin(
         enriched_solution[:generation],
         gen_df[!,union(cost_fields, [:r_id])],
@@ -223,27 +237,42 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage)
         cost.fixed_om_cost_per_mw_per_hour .* cost.existing_cap_mw .* replace(cost.commit, missing => 1)
     select!(cost,Not(union(cost_fields,fields_to_remove)))
     
-    if !isnothing(storage)
+    if :storage in keys(enriched_solution)
         cost_fields = [:var_om_cost_per_mwh]
-        fields_to_remove = [:charge_MW, :discharge_MW, :SOE_MWh, :envelope_up_MWh,:envelope_down_MWh]
+        fields_to_remove = intersect([:charge_MW, :discharge_MW, :SOE_MWh, :envelope_up_MWh,:envelope_down_MWh, :full_id], propertynames(enriched_solution[:storage]))  
         storage_cost = leftjoin(
             enriched_solution[:storage],
             storage[!,union(cost_fields, [:r_id])],
             on = [:r_id]
         )
         storage_cost.production_cost =  (storage_cost.charge_MW + storage_cost.discharge_MW) .* storage_cost.var_om_cost_per_mwh
-        
         select!(storage_cost, Not(union(cost_fields,fields_to_remove)))
         cost = vcat(cost, storage_cost, cols=:union)
-        # cost = leftjoin(cost, storage_cost, on = [:r_id, :hour])
-        #enriched_solution[:scalar].OPEX == sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))
-
     end
-    if !within_MIPGap(enriched_solution[:scalar].OPEX[1], sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))) 
-        error("Start and operational missmatch with OPEX")
+    if :reserve  in keys(enriched_solution)
+        fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id]
+        reserve_cost = copy(enriched_solution[:reserve])
+        reserve_cost.reserve_value = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
+        select!(reserve_cost, Not(fields_to_remove)) 
+        cost = vcat(cost, reserve_cost, cols=:union)
     end
 
-    
+    if :energy_reserve  in keys(enriched_solution)
+        # This one gets reserve cost for energy reserve on the diagonal terms!
+        fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id, :hour_i]
+        reserve_cost = filter(y->(y.hour_i .== y.hour),  enriched_solution[:energy_reserve])
+        reserve_cost.reserve_value = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
+        select!(reserve_cost, Not(fields_to_remove)) 
+        cost = vcat(cost, reserve_cost, cols=:union)
+    end
+    if :LOL_MW in propertynames(enriched_solution[:demand]) # ED, we assume that LGEN_MW is also present when LOL_MW is present
+        fields_to_remove = [:LOL_MW, :LGEN_MW, :demand_MW]
+        losses_cost = copy(enriched_solution[:demand])
+        losses_cost.losses_cost = losses_cost.LOL_MW .* parameters.VLOL .+ losses_cost.LGEN_MW .* parameters.VLGEN
+        select!(losses_cost, Not(fields_to_remove))
+        cost = vcat(cost, losses_cost, cols=:union) 
+    end
+    check()
     return cost
 end
 
@@ -259,8 +288,15 @@ end
 
 function get_model_solution(model, gen_df, loads, gen_variable; config...)
     # Model is either UC or ED
+    parameters_for_enriching = (MIPGap = parameter_value(model[:MIPGap]), VRESERVE = parameter_value(model[:VRESERVE]))
+    if haskey(model, :VLOL) # ED
+        parameters_for_enriching = merge(parameters_for_enriching,
+            (VLOL = Array(parameter_value.(model[:VLOL])),
+            VLGEN = Array(parameter_value.(model[:VLGEN])))
+        )
+    end
     if get(config, :enriched_solution, true)
-        return enrich_dfs(get_solution(model), gen_df, loads, gen_variable, get(config, :storage, nothing)) 
+        return enrich_dfs(get_solution(model), gen_df, loads, gen_variable, get(config, :storage, nothing),parameters_for_enriching) 
     else
         return get_solution(model)#TODO: remove kwargs 
     end

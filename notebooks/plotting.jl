@@ -11,6 +11,7 @@ color_map=Dict(
     "natural_gas_fired_combined_cycle" => "grey",
     "natural_gas_fired_combustion_turbine" => "black",
     "total" => "purple",
+    "system" => "purple",
     "required" => "#F0092",
     "envelope_down_MWh" => "blue",
     "envelope_up_MWh" => "red",

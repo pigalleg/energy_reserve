@@ -184,7 +184,7 @@ function get_enriched_demand(solution, loads)
     demand = rename(demand_, [ x => "demand_MW" for x in names(select(demand_,Not(:hour)))])
     # demand =  rename(loads, :demand => :demand_MW)
     demand.r_id .= missing
-    demand.resource .= "total"
+    demand.resource .= "system"
     if haskey(solution, :LOL)
         demand.demand_MW =  demand.demand_MW - solution[:LOL].value
         demand = leftjoin(
@@ -195,7 +195,7 @@ function get_enriched_demand(solution, loads)
     if haskey(solution, :LGEN)
         LGEN = copy(solution.LGEN)
         # LGEN.r_id .= missing
-        LGEN.resource .= "total"
+        LGEN.resource .= "system"
         demand = outerjoin(
             demand,
             rename(LGEN[!,[:resource, :hour, :value]], :value => :LGEN_MW),
@@ -250,7 +250,7 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
         select!(storage_cost, Not(union(cost_fields,fields_to_remove)))
         cost = vcat(cost, storage_cost, cols=:union)
     end
-    if :reserve  in keys(enriched_solution)
+    if :reserve in keys(enriched_solution)
         fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id]
         reserve_cost = copy(enriched_solution[:reserve])
         reserve_cost.reserve_cost = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
@@ -258,7 +258,7 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
         cost = vcat(cost, reserve_cost, cols=:union)
     end
 
-    if :energy_reserve  in keys(enriched_solution)
+    if :energy_reserve in keys(enriched_solution)
         # This one gets reserve cost for energy reserve on the diagonal terms!
         fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id, :hour_i]
         reserve_cost = filter(y->(y.hour_i .== y.hour),  enriched_solution[:energy_reserve])

@@ -20,6 +20,7 @@ order = [
   "small_hydroelectric",
   "biomass",
   "total",
+  "system",
   "required"]
 
 

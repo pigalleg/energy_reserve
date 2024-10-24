@@ -1,6 +1,7 @@
 using DataFrames
 
 FIELD_FOR_ENRICHING = [:r_id, :resource, :full_id]
+SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters ,:objective_function]
 
 function value_to_df(var)
     if var isa JuMP.Containers.DenseAxisArray
@@ -212,11 +213,11 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
         if !within_MIPGap(enriched_solution[:scalar].OPEX[1], sum_cost , parameters.MIPGap) 
             error("Start and operational cost missmatch with OPEX")
         end
-        if :reserve_value in propertynames(cost)
-            sum_cost += sum(skipmissing(cost.reserve_value))
+        if :reserve_cost in propertynames(cost)
+            sum_cost += sum(skipmissing(cost.reserve_cost))
         end
-        if :losses_cost in propertynames(cost)
-            sum_cost += sum(skipmissing(cost.losses_cost))  
+        if :LOL_cost in propertynames(cost)
+            sum_cost += sum(skipmissing(cost.LOL_cost))  + sum(skipmissing(cost.LGEN_cost))  
         end
         if !within_MIPGap(enriched_solution[:scalar].objective_value[1], sum_cost, parameters.MIPGap) 
             error("Start, operational cost and reserve penalization missmatch with objective value")
@@ -252,7 +253,7 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
     if :reserve  in keys(enriched_solution)
         fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id]
         reserve_cost = copy(enriched_solution[:reserve])
-        reserve_cost.reserve_value = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
+        reserve_cost.reserve_cost = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
         select!(reserve_cost, Not(fields_to_remove)) 
         cost = vcat(cost, reserve_cost, cols=:union)
     end
@@ -261,14 +262,15 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
         # This one gets reserve cost for energy reserve on the diagonal terms!
         fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id, :hour_i]
         reserve_cost = filter(y->(y.hour_i .== y.hour),  enriched_solution[:energy_reserve])
-        reserve_cost.reserve_value = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
+        reserve_cost.reserve_cost = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE
         select!(reserve_cost, Not(fields_to_remove)) 
         cost = vcat(cost, reserve_cost, cols=:union)
     end
     if :LOL_MW in propertynames(enriched_solution[:demand]) # ED, we assume that LGEN_MW is also present when LOL_MW is present
         fields_to_remove = [:LOL_MW, :LGEN_MW, :demand_MW]
         losses_cost = copy(enriched_solution[:demand])
-        losses_cost.losses_cost = losses_cost.LOL_MW .* parameters.VLOL .+ losses_cost.LGEN_MW .* parameters.VLGEN
+        losses_cost.LOL_cost = losses_cost.LOL_MW .* parameters.VLOL
+        losses_cost.LGEN_cost = losses_cost.LGEN_MW .* parameters.VLGEN
         select!(losses_cost, Not(fields_to_remove))
         cost = vcat(cost, losses_cost, cols=:union) 
     end

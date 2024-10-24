@@ -222,7 +222,7 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         # :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
         # :VLOL => get(kwargs, :VLOL, 1e4),
         # :VLGEN => get(kwargs, :VLGEN, 0),
-        # :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
+        :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         # :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         # :naive_envelopes => get(kwargs, :naive_envelopes, false),
@@ -310,20 +310,37 @@ function merge_ed_solutions(solution_folders, folder_path, read = true, write = 
 end
 
 function generate_post_processing_KPI_files(folder_path, folders_to_read_ = nothing, save = true)
+    function check(gcdi_KPI_adequacy, gcdi_objective_function_KPI)
+        # Check consistency in objective function
+        x = sort(gcdi_KPI_adequacy, [:configuration,:day,:iteration])
+        y = sort(gcdi_objective_function_KPI, [:configuration,:day,:iteration])
+        if !(all(isapprox.(x.objective_value,  y.OPEX .+ y.LOL_cost .+ y.LGEN_cost .+ y.reserve_cost, rtol=10^-8)))
+            error("Missmatch in objective value")
+        end
+        if !(all(isapprox.(x.OPEX,  y.OPEX , rtol=10^-8)))
+            error("Missmatch in OPEX")
+        end
+    end
+
     function chunk_list_custom(arr, chunk_size)
         return [arr[i:min(i + chunk_size - 1, end)] for i in 1:chunk_size:length(arr)]
     end
 
-    function KPI_df_list(solution_folders, folder_path)
+    function KPI_df_dict(solution_folders, folder_path)
         println("Calculating adecuacy KPIS...")
+        out = []
         s_uc, s_ed = merge_ed_solutions(solution_folders, folder_path)
-        gcdi_KPI_adequacy = calculate_adecuacy_gcdi_KPI(s_ed, s_uc)
-        gcd_KPI_adequacy = calculate_adecuacy_gcd_KPI(gcdi_KPI_adequacy)
-        KPI_reserve = calculate_reserve_KPI(s_ed, s_uc)
-        gcdi_KPI_reserve = calculate_reserve_gcdi_KPI(KPI_reserve)
-        gcd_KPI_reserve = calculate_reserve_gcd_KPI(gcdi_KPI_reserve)
+        push!(out, calculate_adecuacy_gcdi_KPI(s_ed, s_uc))
+        # out[:gcdi_KPI_adequacy] = calculate_adecuacy_gcdi_KPI(s_ed, s_uc)
+        push!(out, calculate_adecuacy_gcd_KPI(last(out)))
+        push!(out, calculate_objective_function_gcdi_KPI(s_ed, s_uc))
+        push!(out, calculate_objective_function_gcd_KPI(last(out)))
+        # calculate_reserve_KPI(s_ed, s_uc)
+        # calculate_reserve_gcdi_KPI(out[:KPI_reserve])
+        # calculate_reserve_gcd_KPI(out[:gcdi_KPI_reserve])
+        check(out[1], out[3])
         println("...done)")
-        return [gcdi_KPI_adequacy, gcd_KPI_adequacy, KPI_reserve, gcdi_KPI_reserve, gcd_KPI_reserve]
+        return out
 
     end
     chunk_size = 1
@@ -338,14 +355,14 @@ function generate_post_processing_KPI_files(folder_path, folders_to_read_ = noth
     keys = [
         :gcdi_KPI_adequacy,
         :gcd_KPI_adequacy,
-        :KPI_reserve,
-        :gcdi_KPI_reserve,
-        :gcd_KPI_reserve,
+        :gcdi_KPI_objective_function,
+        :gcd_KPI_objective_function
+        # :KPI_reserve,
+        # :gcdi_KPI_reserve,
+        # :gcd_KPI_reserve,
         ]
-
-    values = vcat.([KPI_df_list(folders, folder_path) for folders in chunk_list_custom(folders_to_read, chunk_size)]...)
+    values = vcat.([KPI_df_dict(folders, folder_path) for folders in chunk_list_custom(folders_to_read, chunk_size)]...)
     out = NamedTuple(k => v for (k,v) in zip(keys, values))
-   
     if save
         solution_to_parquet(out, out_name, folder_path)
     end

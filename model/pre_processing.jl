@@ -5,7 +5,6 @@ using LinearAlgebra
 
 G_DEFAULT_LOCATION = "./input/base_case"
 G_NET_GENERAION_FULL_ID = "net_generation"
-SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters]
 G_UC_DATA = "uc"
 
 
@@ -191,7 +190,7 @@ function generate_scenarios_data(simulation_day, input_location = G_DEFAULT_LOCA
 end
 
 function read_reserve(input_location = G_DEFAULT_LOCATION)
-  return CSV.read(joinpath(input_location, G_UC_DATA, "Reserve.csv"), DataFrame), Not[:day]
+  return CSV.read(joinpath(input_location, G_UC_DATA, "Reserve.csv"), DataFrame)
 end
 
 

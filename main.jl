@@ -222,11 +222,12 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         # :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
         # :VLOL => get(kwargs, :VLOL, 1e4),
         # :VLGEN => get(kwargs, :VLGEN, 0),
-        :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
+        :thermal_reserve =>  get(kwargs, :thermal_reserve, true),
         # :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         # :naive_envelopes => get(kwargs, :naive_envelopes, false),
-        :variables_to_constrain => get(kwargs, :variables_to_constrain, [:GEN])
+        :variables_to_constrain => get(kwargs, :variables_to_constrain, [:GEN]),
+        :storage_reserve_contribution =>  get(kwargs, :storage_reserve_contribution, 1),
         # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])

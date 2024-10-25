@@ -207,6 +207,7 @@ function get_enriched_demand(solution, loads)
 end
 
 function get_enriched_objective_value(enriched_solution, gen_df, storage, parameters)
+    #TODO: deal with missing values
     function check()
         within_MIPGap(x,y,tolerance) = abs((x-y)/x) <= tolerance
         sum_cost = sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))
@@ -259,7 +260,7 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
     end
 
     if :energy_reserve in keys(enriched_solution)
-        # This one gets reserve cost for energy reserve on the diagonal terms!
+        # This one calculates reserve cost for energy reserve on the diagonal terms!
         fields_to_remove = [:reserve_up_MW, :reserve_down_MW, :full_id, :hour_i]
         reserve_cost = filter(y->(y.hour_i .== y.hour),  enriched_solution[:energy_reserve])
         reserve_cost.reserve_cost = (reserve_cost.reserve_up_MW + reserve_cost.reserve_down_MW)*parameters.VRESERVE

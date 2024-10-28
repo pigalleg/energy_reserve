@@ -265,7 +265,7 @@ function add_storage_reserve_power_constraints(model, storage, sets)
     )
 end
 
-function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, naive_envelopes::Bool, thermal_reserve::Bool, storage_reserve_contribution::Union{Int64,Float64}, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64}, sets::NamedTuple)
+function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{DataFrame, Nothing}, bidirectional_storage_reserve::Bool, storage_envelopes::Bool, naive_envelopes::Bool, thermal_reserve::Bool, storage_reserve_repartition::Union{Int64,Float64}, μ_up::Union{Int64,Float64}, μ_dn::Union{Int64,Float64}, VRESERVE::Union{Int64,Float64}, sets::NamedTuple)
     G_thermal = sets.G_thermal
     T = sets.T
     T_red = sets.T_red
@@ -284,7 +284,7 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     @objective(model, Min, 
         objective_function(model) + VRESERVE*sum(RESUP[g,t] for g in G_reserve, t in T) + VRESERVE*sum(RESDN[g,t] for g in G_reserve, t in T)
     )
-    @variable(model, VRESERVE in Parameter(VRESERVE)) # used for output purposes
+    @variable(model, VRESERVE in Parameter(VRESERVE)) # used for postprocessing
 
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, ResUpThermal[g in G_thermal, t in T],
@@ -359,9 +359,9 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_envelopes)
         end
 
-        if storage_reserve_contribution > 0
-            println("Adding storage reserve contribution...")
-            add_storage_reserve_contribution(model, reserve, storage_reserve_contribution, sets)
+        if storage_reserve_repartition >=0
+            println("Adding storage reserve repartition...")
+            add_storage_reserve_repartition(model, reserve, storage_reserve_repartition, sets)
         end 
     end
     # (4) Overall reserve requirements
@@ -373,17 +373,26 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
     )
 end
 
-function add_storage_reserve_contribution(model, reserve, storage_reserve_contribution, sets)
+function add_storage_reserve_repartition(model, reserve, storage_reserve_repartition, sets)
     RESUP = model[:RESUP]
     RESDN = model[:RESDN]
     S = axes(model[:SOE])[1]
     T = sets.T
-    @constraint(model, ResUpStorageMinContribution,
-        sum(RESUP[s,t] for s in S, t in T) >= storage_reserve_contribution * sum(reserve[:,:reserve_up_MW])
+    not_S = setdiff(axes(model[:RESUP])[1],S)
+    @constraint(model, ResUpStorageRepartition,
+        sum(RESUP[s,t] for s in S, t in T) == storage_reserve_repartition * sum(reserve[:,:reserve_up_MW])
     )
-    @constraint(model, ResDnStorageMinContribution[t in T],
-        sum(RESDN[s,t] for s in S, t in T) >= storage_reserve_contribution * sum(reserve[:,:reserve_down_MW])
+    @constraint(model, ResDnStorageRepartition,
+        sum(RESDN[s,t] for s in S, t in T) == storage_reserve_repartition * sum(reserve[:,:reserve_down_MW])
     )
+
+    @constraint(model, ResUpNotStorageRepartition,
+        sum(RESUP[s,t] for s in not_S, t in T) == (1-storage_reserve_repartition) * sum(reserve[:,:reserve_up_MW])
+    )
+    @constraint(model, ResDnNotStorageRepartition,
+        sum(RESDN[s,t] for s in not_S, t in T) == (1-storage_reserve_repartition) * sum(reserve[:,:reserve_down_MW])
+    )
+
 
 end
 
@@ -463,12 +472,11 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
         ERESUP[G_reserve, j in T, t in T; j <= t] >= 0
         ERESDN[G_reserve, j in T, t in T; j <= t] >= 0
     end)
-
     @objective(model, Min, 
         objective_function(model) + VRESERVE*sum(ERESUP[g,t,t] for g in G_reserve, t in T) + VRESERVE*sum(ERESDN[g,t,t] for g in G_reserve, t in T)
     )
 
-    @variable(model, VRESERVE in Parameter(VRESERVE)) # used for output purposes
+    @variable(model, VRESERVE in Parameter(VRESERVE)) # used for postprocessing
 
     # (1) Reserves limited by committed capacity of generator
     @constraint(model, EnergyResUpThermal[g in G_thermal, j in T, t in T; j <= t],

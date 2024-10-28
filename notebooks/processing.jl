@@ -260,16 +260,16 @@ end
 function calculate_objective_function_gcdi_KPI(s_ed, s_uc)
   #TODO: add s_uc OPEX
   group_by = [:configuration, :day, :iteration]
-  return  combine(groupby(s_ed[:objective_function], group_by), 
+  out =   combine(groupby(s_ed[:objective_function], group_by), 
     [:production_cost, :start_cost] => ((x,y) -> sum(skipmissing(x)) +  sum(skipmissing(y))) => :OPEX,
     [:LOL_cost, :LGEN_cost, :reserve_cost] .=> (x ->sum(skipmissing(x))) .=> [:LOL_cost, :LGEN_cost, :reserve_cost]
     )
-
+  return sort(transform(out, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu), :mu)
 end
 
 function calculate_objective_function_gcd_KPI(gcdi_objective_funtion_KPI)
   #TODO: add s_uc OPEX
-  group_by = [:configuration, :day]
+  group_by = [:configuration, :day, :mu]
   return  combine(groupby(gcdi_objective_funtion_KPI, group_by),
   [:OPEX, :LOL_cost, :LGEN_cost, :reserve_cost] .=> mean .=> [:EOPEX, :EENS_cost, :ELGEN_cost, :E_reserve_cost],
   )

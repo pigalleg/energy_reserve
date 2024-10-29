@@ -358,7 +358,6 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
             println("Adding storage envelopes...")
             add_envelope_constraints(model, loads, storage, μ_up, μ_dn, naive_envelopes)
         end
-
         if storage_reserve_repartition >=0
             println("Adding storage reserve repartition...")
             add_storage_reserve_repartition(model, reserve, storage_reserve_repartition, sets)

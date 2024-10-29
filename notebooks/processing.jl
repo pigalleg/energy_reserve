@@ -139,14 +139,6 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   if :LGEN_MW in propertynames(s_ed.demand)
     gcdi_KPI = outerjoin(gcdi_KPI, combine(groupby(s_ed.demand, group_by_big), :LGEN_MW => sum => :LGEN_MWh),on = group_by_big)
   end
-
-  # folowing leftjoin will repeat values right values for "iteration"
-  s_ed_scalar = s_ed.scalar[:, Not(:termination_status)]
-  leftjoin!(
-      s_ed_scalar, 
-      rename(s_uc.scalar[:, Not(:termination_status)], [:objective_value =>:objective_value_uc, :OPEX => :OPEX_uc]),
-      on = setdiff(propertynames(s_ed_scalar), [:objective_value, :iteration, :OPEX]))
-  
   # beging REMOVE -- 
   # relative difference with respect to s_uc
   # s_ed_scalar.Δobjective_value = s_ed_scalar.objective_value .- s_ed_scalar.objective_value_uc
@@ -156,7 +148,7 @@ function calculate_adecuacy_gcdi_KPI(s_ed, s_uc, thres =.001) # thres = 1 Watt
   # s_ed_scalar = include_Δobjective_value(s_ed_scalar)
   # end REMOVE -- 
 
-  leftjoin!(gcdi_KPI, s_ed_scalar, on = group_by_big)
+  leftjoin!(gcdi_KPI, calculate_objective_function_gcdi_KPI(s_ed, s_uc), on = group_by_big)
   transform!(gcdi_KPI, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu)
   sort!(gcdi_KPI, :mu)
   return gcdi_KPI
@@ -179,7 +171,7 @@ function calculate_adecuacy_gcd_KPI(gcdi_KPI, group_by = [:configuration, :day])
   gcd_KPI = outerjoin(
     combine(groupby(gcdi_KPI, group_by), [:LLD_h, :ENS_MWh] => ((x,y)->(LOLE = mean(x), EENS = mean(y))) => AsTable),  #TODO: change format
     combine(groupby(gcdi_KPI, group_by), [:CURD_h, :CUR_MWh] => ((x,y)->(CURE = mean(x), ECUR = mean(y))) => AsTable), #TODO: change format
-    combine(groupby(gcdi_KPI, group_by), [:objective_value, :objective_value_uc, :OPEX, :OPEX_uc] .=> mean .=> [:EOV, :OV_uc, :EOPEX, :OPEX_uc]), #:objective_value_uc changed to :OV_uc
+    combine(groupby(gcdi_KPI, group_by), [:objective_value, :objective_value_uc, :OPEX, :OPEX_uc, :redispatch_cost, :LOL_cost, :LGEN_cost, :reserve_cost] .=> mean .=> [:EOV, :OV_uc, :EOPEX, :OPEX_uc, :E_redispatch_cost, :EENS_cost, :ELGEN_cost, :E_reserve_cost]), #:objective_value_uc changed to :OV_uc
     on=[:configuration, :day])
   if :LGEN_MWh in propertynames(gcdi_KPI) # ED
     gcd_KPI = outerjoin(gcd_KPI, combine(groupby(gcdi_KPI, group_by), :LGEN_MWh => mean => :ELGEN),on = [:configuration, :day])
@@ -264,6 +256,15 @@ function calculate_objective_function_gcdi_KPI(s_ed, s_uc)
     [:production_cost, :start_cost] => ((x,y) -> sum(skipmissing(x)) +  sum(skipmissing(y))) => :OPEX,
     [:LOL_cost, :LGEN_cost, :reserve_cost] .=> (x ->sum(skipmissing(x))) .=> [:LOL_cost, :LGEN_cost, :reserve_cost]
     )
+  leftjoin!(out,
+    combine(groupby(s_uc[:objective_function], [:configuration, :day]), 
+      [:production_cost, :start_cost] => ((x,y) -> sum(skipmissing(x)) +  sum(skipmissing(y))) => :OPEX_uc,
+      [:reserve_cost] .=> (x ->sum(skipmissing(x))) .=> [:reserve_cost_uc]),
+      on = [:configuration, :day], 
+  )
+  out.objective_value = out.OPEX .+ out.LOL_cost .+ out.LGEN_cost .+ out.reserve_cost
+  out.objective_value_uc = out.OPEX_uc .+ out.reserve_cost_uc
+  out.redispatch_cost = out.OPEX .- out.OPEX_uc
   return sort(transform(out, :configuration .=> ByRow(x -> parse_configuration_to_mu(x)) .=> :mu), :mu)
 end
 
@@ -271,6 +272,6 @@ function calculate_objective_function_gcd_KPI(gcdi_objective_funtion_KPI)
   #TODO: add s_uc OPEX
   group_by = [:configuration, :day, :mu]
   return  combine(groupby(gcdi_objective_funtion_KPI, group_by),
-  [:OPEX, :LOL_cost, :LGEN_cost, :reserve_cost] .=> mean .=> [:EOPEX, :EENS_cost, :ELGEN_cost, :E_reserve_cost],
+  [:OPEX, :redispatch_cost, :LOL_cost, :LGEN_cost, :reserve_cost] .=> mean .=> [:EOPEX, :E_redispatch_cost, :EENS_cost, :ELGEN_cost, :E_reserve_cost],
   )
 end

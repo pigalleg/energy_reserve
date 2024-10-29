@@ -247,8 +247,8 @@ function generate_post_processing_KPI_files(folder_path, folders_to_read_ = noth
     keys = [
         :gcdi_KPI_adequacy,
         :gcd_KPI_adequacy,
-        :gcdi_KPI_objective_function,
-        :gcd_KPI_objective_function
+        # :gcdi_KPI_objective_function,
+        # :gcd_KPI_objective_function
         # :KPI_reserve,
         # :gcdi_KPI_reserve,
         # :gcd_KPI_reserve,

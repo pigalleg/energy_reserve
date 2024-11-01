@@ -36,7 +36,7 @@ function generate_energy_reserve_file(input_location)
   println("Generating energy reserve file")
   random_load = CSV.read(joinpath(input_location, "ed", "random_demand.csv"), DataFrame)
   p = 0.975
-  create_energy_reserve(random_load, p)
+  create_energy_reserve(random_load, p, input_location)
 end
 
 

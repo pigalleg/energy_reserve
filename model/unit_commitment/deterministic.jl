@@ -561,7 +561,7 @@ function add_energy_reserve_constraints(model, reserve, loads, gen_df, storage::
             ERESDN[s,j,t] == ERESDNCH[s,j,t] + ERESDNDIS[s,j,t]
         )
 
-        if storage_envelopes # TODO: change this to default when reserves are active
+        if storage_envelopes
             println("Adding storage energy envelopes...")
             add_energy_envelope_constraints(model, storage, μ_up, μ_dn, sets)
         end

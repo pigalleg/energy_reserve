@@ -15,7 +15,7 @@ function construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mi
     μ_dn = get(kwargs, :μ_dn, 1)
     VRESERVE = get(kwargs, :VRESERVE, 1e-6)
     bidirectional_storage_reserve = get(kwargs, :bidirectional_storage_reserve, true)
-    thermal_reserve = get(kwargs, :thermal_reserve, true)
+    thermal_reserve = get(kwargs, :thermal_reserve, false)
     naive_envelopes = get(kwargs, :naive_envelopes, false)
     sets =  get_sets(gen_df, loads)
     uc = DUC(gen_df, loads, gen_variable, mip_gap)

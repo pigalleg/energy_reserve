@@ -55,10 +55,9 @@ end
 
 function construct_unit_commitment(gen_df, loads, gen_variable, scenarios; kwargs...)
     storage = get(kwargs, :storage, nothing)
-    ramp_constraints = get(kwargs, :ramp_constraints, false)
+    ramp_constraints = get(kwargs, :ramp_constraints, true)
     mip_gap = get(kwargs, :mip_gap, 1e-8)
-    stochastic = get(kwargs, :stochastic, false)
-    if !stochastic
+    if isnothing(scenarios)
         return construct_deterministic_unit_commitment(gen_df, loads, gen_variable, mip_gap, storage, ramp_constraints; kwargs...)
     else
         return construct_stochastic_unit_commitment(gen_df, gen_variable, mip_gap, storage, ramp_constraints, scenarios, get(kwargs, :expected_min_SOE, false), get(kwargs, :VLOL, 1e4), get(kwargs, :VLGEN, 0))
@@ -77,7 +76,10 @@ function solve_unit_commitment(gen_df, loads, gen_variable, scenarios = nothing;
     # save_model_to_file(uc,"uc")
     optimize!(uc)
     if !is_solved_and_feasible(uc)
-        @infiltrate
+        include("./debugging_ignore.jl")
+       
+        # relax_reserve_requirement(uc, kwargs[:reserve])
+        @infiltrate   
         # list = get_conflicting_constraints(uc)
     end
     return uc

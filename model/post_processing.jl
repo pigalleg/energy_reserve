@@ -1,11 +1,20 @@
 using DataFrames
 
 FIELD_FOR_ENRICHING = [:r_id, :resource, :full_id]
-SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters ,:objective_function]
+SOLUTION_KEYS = [:demand, :generation, :storage, :reserve, :energy_reserve, :scalar, :generation_parameters, :storage_parameters, :objective_function]
 
-function value_to_df(var)
+function value_to_df(var, stochastic)
+    if stochastic
+        x,y = (axes(var)[1:ndims(var)-1], last(axes(var))) 
+        return vcat([insertcols(value_to_df_(var[x...,s]), :scenario => s) for s in y]...)
+    else
+        return value_to_df_(var)
+    end
+end
+
+function value_to_df_(var)
     if var isa JuMP.Containers.DenseAxisArray
-        if length(value.(var).axes) == 2
+        if ndims(var) == 2 #length(value.(var).axes) == 2
             return value_to_df_2dim(var)
         else
             return value_to_df_1dim(var)
@@ -43,27 +52,59 @@ function value_to_df_2dim(var)
     cols = names(solution)
     insertcols!(solution, 1, :r_id => ax1)
     solution = stack(solution, Not(:r_id), variable_name=:hour)
-    solution.hour = foldl(replace, [cols[i] => ax2[i] for i in 1:length(ax2)], init=solution.hour)
+    solution.hour = foldl(replace, [cols[i] => ax2[i] for i in 1:length(ax2)], init = solution.hour)
     #   rename!(solution, :value => :gen)
     solution.hour = convert.(Int64,solution.hour)
     return solution
 end
 
-function get_solution(model)
+function get_solution(model, stochastic = false)
     return merge(
-        get_solution_variables(model),
+        get_solution_variables(model, stochastic),
         (scalar = DataFrame(objective_value = objective_value(model), termination_status = termination_status(model), OPEX = value(model[:OPEX])),)
         # (objective_value = objective_value(model), termination_status = termination_status(model))
     )
 end
 
-function get_solution_variables(model)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :START, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC]
-    return NamedTuple(k => value_to_df(model[k]) for k in intersect(keys(object_dictionary(model)), variables_to_get))
+function get_solution_variables(model, stochastic)
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :START, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH]   
+
+    return NamedTuple(k => value_to_df(model[k], stochastic) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
 
-function enrich_dfs(solution, gen_df, loads, gen_variable, storage, parameters)
+
+function get_model_solution(model, gen_df, gen_variable; loads = nothing, scenarios = nothing, config...)
+    #TODO: loads not used 
+    # Model is either UC or ED or SUC
+    stochastic = !isnothing(scenarios)
+    parameters_for_enriching = (MIPGap = parameter_value(model[:MIPGap]),)
+    if haskey(model, :VRESERVE) # UC
+        parameters_for_enriching = merge(parameters_for_enriching, (VRESERVE = parameter_value(model[:VRESERVE]),))
+    end
+    if haskey(model, :VLOL) # ED or SUC
+        parameters_for_enriching = merge(parameters_for_enriching,
+            (VLOL = Array(parameter_value.(model[:VLOL])),
+            VLGEN = Array(parameter_value.(model[:VLGEN])))
+        )
+    end
+    if get(config, :enriched_solution, true)
+        if stochastic
+            loads_ = stack(scenarios.demand, Not([:day,:hour]), variable_name = :scenario, value_name = :demand)
+            get_objective_function = true
+        else
+            loads_ = loads  
+            get_objective_function = true
+        end
+        return enrich_dfs(get_solution(model, stochastic), gen_df, loads_, gen_variable, get(config, :storage, nothing), parameters_for_enriching, get_objective_function) 
+    else
+        return get_solution(model, stochastic)
+    end
+end
+
+function enrich_dfs(solution, gen_df, loads, gen_variable, storage, parameters, objective_function = true)
     #TODO: deal with missing values
+    #TODO: include objective_function for stochastic solution
+    
     # out = Dict(pairs(solution[[:objective_value, :termination_status]]))
     out = Dict(pairs(solution[[:scalar]]))
     # out = Dict(:generation => get_enriched_generation(solution, gen_df, gen_variable))
@@ -83,7 +124,9 @@ function enrich_dfs(solution, gen_df, loads, gen_variable, storage, parameters)
         out[:energy_reserve] =  get_enriched_energy_reserve(solution, data)
     end
     out[:demand] = get_enriched_demand(solution, loads)
-    out[:objective_function] = get_enriched_objective_value(out, gen_df, storage,parameters)
+    if objective_function
+        out[:objective_function] = get_enriched_objective_value(out, gen_df, storage, parameters)
+    end
     # out[:constraints] = get_constraints(solution)
     return NamedTuple(out)
 end
@@ -94,7 +137,7 @@ function get_enriched_energy_reserve(solution, data)
         innerjoin(
             rename(solution.ERESUP, :value => :reserve_up_MW),
             rename(solution.ERESDN, :value => :reserve_down_MW),
-            on = [:r_id, :hour, :hour_i]
+            on = [:r_id, :hour, :hour_i],
         ),
         data[!,FIELD_FOR_ENRICHING],
         on = :r_id
@@ -111,16 +154,16 @@ function get_enriched_reserve(solution, data)
         data[!,FIELD_FOR_ENRICHING],
         on = :r_id
     )
-    # if haskey(solution, :RESUPDIS)
-    #     aux = outerjoin(
-    #         aux,
-    #         rename(solution.RESUPDIS, :value => :reserve_discharge_up_MW),
-    #         rename(solution.RESUPCH, :value => :reserve_charge_up_MW),
-    #         rename(solution.RESDNDIS, :value => :reserve_discharge_down_MW),
-    #         rename(solution.RESDNCH, :value => :reserve_charge_down_MW),
-    #         on = [:r_id, :hour],
-    #     )
-    # end
+    if haskey(solution, :RESUPDIS)
+        aux = outerjoin(
+            aux,
+            rename(solution.RESUPDIS, :value => :reserve_discharge_up_MW),
+            rename(solution.RESUPCH, :value => :reserve_charge_up_MW),
+            rename(solution.RESDNDIS, :value => :reserve_discharge_down_MW),
+            rename(solution.RESDNCH, :value => :reserve_charge_down_MW),
+            on = [:r_id, :hour]
+        )
+    end
     if haskey(solution, :CHRESDNCH)
         aux = outerjoin(
             aux,
@@ -128,25 +171,26 @@ function get_enriched_reserve(solution, data)
             rename(solution.CHRESUPCH, :value => :chargue_reserve_min_MW),
             rename(solution.DISRESUPDIS, :value => :discharge_reserve_max_MW),
             rename(solution.DISRESDNDIS, :value => :discharge_reserve_min_MW),
-            on = [:r_id, :hour],
+            on = [:r_id, :hour]
         )
     end
     return aux
 end
 
 function get_enriched_storage(solution, data)
+    join_on = intersect([:r_id, :hour, :scenario], propertynames(solution.CH))
     aux = innerjoin(
         rename(solution.CH, :value => :charge_MW),
         rename(solution.DIS, :value => :discharge_MW),
         rename(solution.SOE, :value => :SOE_MWh),
-        on = [:r_id, :hour]
+        on = join_on
     )
     if haskey(solution, :SOEUP) & haskey(solution, :SOEDN)
         aux = innerjoin(
             aux,
             rename(solution.SOEUP, :value => :envelope_up_MWh),
             rename(solution.SOEDN, :value => :envelope_down_MWh),
-            on = [:r_id, :hour]
+            on = join_on
         )
     end
     # if haskey(solution, :SOEUP_ED) & haskey(solution, :SOEDN_EC) # deprecated
@@ -161,16 +205,17 @@ function get_enriched_storage(solution, data)
 end
 
 function get_enriched_generation(solution, gen_df, gen_variable)
-    curtail = innerjoin(gen_variable, solution.GEN, on = [:r_id, :hour])
+    join_on = intersect([:r_id, :hour, :scenario], propertynames(solution.GEN))
+    curtail = leftjoin(solution.GEN, gen_variable, on = [:r_id, :hour])
     curtail.value = curtail.cf .* curtail.existing_cap_mw - curtail.value
     aux = outerjoin(
         outerjoin(  
             rename(solution.GEN, :value => :production_MW),
-            rename(curtail[!,[:r_id, :hour, :value]], :value => :curtailment_MW),
+            rename(curtail[!, union(join_on, [:value])], :value => :curtailment_MW),
             rename(solution.COMMIT, :value => :commit),
             rename(solution.START, :value => :start),
             rename(solution.SHUT, :value => :shut),
-            on = [:r_id, :hour]
+            on = join_on #[:r_id, :hour]
         ),
         gen_df[!,FIELD_FOR_ENRICHING],
         on = :r_id
@@ -180,8 +225,9 @@ function get_enriched_generation(solution, gen_df, gen_variable)
 end
 
 function get_enriched_demand(solution, loads)
-    demand_ = "day" in names(loads) ? select(loads,Not(:day)) : loads
-    demand = rename(demand_, [ x => "demand_MW" for x in names(select(demand_,Not(:hour)))])
+    join_on = intersect([:hour, :scenario], propertynames(loads))
+    demand_ = "day" in names(loads) ? select(loads, Not(:day)) : loads
+    demand = rename(demand_, [ x => "demand_MW" for x in names(select(demand_,Not(join_on)))])
     # demand =  rename(loads, :demand => :demand_MW)
     demand.r_id .= missing
     demand.resource .= "system"
@@ -190,16 +236,18 @@ function get_enriched_demand(solution, loads)
         demand = leftjoin(
             demand, 
             rename(solution[:LOL], :value => :LOL_MW),
-            on = [:hour])
+            on = join_on
+        )
     end
     if haskey(solution, :LGEN)
         LGEN = copy(solution.LGEN)
+        join_on = intersect([:hour, :resource, :scenario], propertynames(LGEN))
         # LGEN.r_id .= missing
         LGEN.resource .= "system"
         demand = outerjoin(
             demand,
-            rename(LGEN[!,[:resource, :hour, :value]], :value => :LGEN_MW),
-            on = [:hour, :resource]
+            rename(LGEN[!,union(join_on, [:value])], :value => :LGEN_MW),
+            on = join_on
         )
         replace!(demand.LGEN_MW, missing => 0)
     end
@@ -209,22 +257,22 @@ end
 function get_enriched_objective_value(enriched_solution, gen_df, storage, parameters)
     #TODO: deal with missing values
     function check()
-        within_MIPGap(x,y,tolerance) = abs((x-y)/x) <= tolerance
-        sum_cost = sum(skipmissing(cost.production_cost)) + sum(skipmissing(cost.start_cost))
-        if !within_MIPGap(enriched_solution[:scalar].OPEX[1], sum_cost , parameters.MIPGap) 
+        aux = combine(groupby(cost, intersect([:scenario], propertynames(cost))), [:production_cost, :start_cost] .=> (x -> sum(skipmissing(x))), renamecols = false)
+        sum_cost = mean(aux.production_cost.+aux.start_cost)
+        if !isapprox(enriched_solution[:scalar].OPEX[1], sum_cost; rtol =  parameters.MIPGap)
             error("Start and operational cost missmatch with OPEX")
         end
         if :reserve_cost in propertynames(cost)
             sum_cost += sum(skipmissing(cost.reserve_cost))
         end
         if :LOL_cost in propertynames(cost)
-            sum_cost += sum(skipmissing(cost.LOL_cost))  + sum(skipmissing(cost.LGEN_cost))  
+            aux = combine(groupby(cost, intersect([:scenario], propertynames(cost))),[:LOL_cost, :LGEN_cost] .=> (x->sum(skipmissing(x))), renamecols = false)
+            sum_cost += mean(aux.LOL_cost .+ aux.LGEN_cost)
         end
-        if !within_MIPGap(enriched_solution[:scalar].objective_value[1], sum_cost, parameters.MIPGap) 
-            error("Start, operational cost and reserve penalization missmatch with objective value")
+        if !isapprox(enriched_solution[:scalar].objective_value[1], sum_cost; rtol = parameters.MIPGap) 
+            error("Start, operational cost and reserve penalization mismatch with objective value")
         end
     end
-   
     cost_fields = [:start_cost_per_mw, :existing_cap_mw, :heat_rate_mmbtu_per_mwh, :fuel_cost, :var_om_cost_per_mwh, :fixed_om_cost_per_mw_per_hour]
     fields_to_remove = [:production_MW, :curtailment_MW, :commit, :start, :full_id, :shut]
     cost = leftjoin(
@@ -245,7 +293,7 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
         storage_cost = leftjoin(
             enriched_solution[:storage],
             storage[!,union(cost_fields, [:r_id])],
-            on = [:r_id]
+            on = [:r_id],
         )
         storage_cost.production_cost =  (storage_cost.charge_MW + storage_cost.discharge_MW) .* storage_cost.var_om_cost_per_mwh
         select!(storage_cost, Not(union(cost_fields,fields_to_remove)))
@@ -270,8 +318,12 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
     if :LOL_MW in propertynames(enriched_solution[:demand]) # ED, we assume that LGEN_MW is also present when LOL_MW is present
         fields_to_remove = [:LOL_MW, :LGEN_MW, :demand_MW]
         losses_cost = copy(enriched_solution[:demand])
-        losses_cost.LOL_cost = losses_cost.LOL_MW .* parameters.VLOL
-        losses_cost.LGEN_cost = losses_cost.LGEN_MW .* parameters.VLGEN
+        transform!(groupby(losses_cost, intersect([:scenario], propertynames(losses_cost))),
+            :LOL_MW => (x -> x.*parameters.VLOL) => :LOL_cost,
+            :LGEN_MW => (x -> x.*parameters.VLGEN) => :LGEN_cost      
+         )
+        # losses_cost.LOL_cost = losses_cost.LOL_MW .* parameters.VLOL
+        # losses_cost.LGEN_cost = losses_cost.LGEN_MW .* parameters.VLGEN
         select!(losses_cost, Not(fields_to_remove))
         cost = vcat(cost, losses_cost, cols=:union) 
     end
@@ -289,21 +341,6 @@ function get_storage_parameters(storage)
     return rename(storage[!,union(FIELD_FOR_ENRICHING, parameters_to_get)],[:existing_cap_mw, :max_energy_mwh] .=> [:P_max_MW, :SOE_max_MWh])
 end
 
-function get_model_solution(model, gen_df, loads, gen_variable; config...)
-    # Model is either UC or ED
-    parameters_for_enriching = (MIPGap = parameter_value(model[:MIPGap]), VRESERVE = parameter_value(model[:VRESERVE]))
-    if haskey(model, :VLOL) # ED
-        parameters_for_enriching = merge(parameters_for_enriching,
-            (VLOL = Array(parameter_value.(model[:VLOL])),
-            VLGEN = Array(parameter_value.(model[:VLGEN])))
-        )
-    end
-    if get(config, :enriched_solution, true)
-        return enrich_dfs(get_solution(model), gen_df, loads, gen_variable, get(config, :storage, nothing),parameters_for_enriching) 
-    else
-        return get_solution(model)#TODO: remove kwargs 
-    end
-end
 
 function solution_to_parquet(s, file_name, file_folder)
     # TODO move to post_processing
@@ -315,8 +352,8 @@ function solution_to_parquet(s, file_name, file_folder)
     end
     println("...done")
   end
-  
-  function parquet_to_solution(file_name, file_folder)
+
+function parquet_to_solution(file_name, file_folder)
     # TODO 1 convert to TerminationStatusCode
     # TODO 2 move to post_processing
     keys = [k for k in SOLUTION_KEYS if isfile(joinpath(file_folder, file_name*"_"*string(k)*".parquet"))]
@@ -324,4 +361,4 @@ function solution_to_parquet(s, file_name, file_folder)
     aux = [read_parquet_and_convert(joinpath(file_folder, file_name*"_"*string(k)*".parquet")) for k in keys]
     println("...done")
     return NamedTuple(keys .=> aux)
-  end
+end

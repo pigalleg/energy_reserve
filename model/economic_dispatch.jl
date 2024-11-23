@@ -61,8 +61,8 @@ function construct_economic_dispatch(uc, loads, constrain_SOE_by_envelopes::Bool
     @objective(ed, Min, 
         objective_function(ed) + sum(LOL[t]*VLOL[t] + LGEN[t]*VLGEN[t] for t in T)
     )
-    @variable(ed, VLOL[t in keys(VLOL)] in Parameter(VLOL[t]))
-    @variable(ed, VLGEN[t in keys(VLGEN)] in Parameter(VLGEN[t]))
+    @variable(ed, VLOL[t in keys(VLOL)] in Parameter(VLOL[t])) # for post-processing purposes
+    @variable(ed, VLGEN[t in keys(VLGEN)] in Parameter(VLGEN[t])) # for post-processing purposes
     # @constraint(ed,
     #     sum(LOL[t] for t in T) == 0 
     # )
@@ -251,7 +251,6 @@ function generate_envelopes(model)
     SOEPUP_value = Array(value.(SOE))  + cumsum(SOEPUP_value; dims = 2) # approach 1
     # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2) # approach 2
 
-
     # SOEPDN_value = -Array(value.(DIS)).*inv_η_dis -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up'# approach 3
     # SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value)
     # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2)
@@ -284,7 +283,7 @@ function constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
 end
 
 function constraint_SOE_final_to_envelopes_UC(model)
-    # it assumes envelopes have been calculateed by this stage
+    # it assumes envelopes have been calculated by this stage
     println("Constraining SOE final to envelopes...")
     SOE = model[:SOE]
     S = axes(SOE)[1]
@@ -411,7 +410,7 @@ function solve_economic_dispatch_(ed, gen_df, loads, gen_variable; kwargs...)
         save_constraints_status(ed, string(get(kwargs, :save_constraints_status_for_demand, nothing)))
     end
     println("done")
-    return get_model_solution(ed, gen_df, loads, gen_variable; kwargs...)
+    return get_model_solution(ed, gen_df, gen_variable; loads = loads, kwargs...)
 end
 
 function solve_economic_dispatch_get_solution(uc, gen_df, loads, gen_variable; kwargs...)

@@ -148,11 +148,9 @@ function suc(;kwargs...)
         gen_variable_multi_df,
         scenarios;
         storage = storage_df,
-        stochastic = true,
         expected_min_SOE = expected_min_SOE,
         config...
         )
-
 end
 
 function ed(;kwargs...)
@@ -167,21 +165,6 @@ function ed(;kwargs...)
         config...
         )
     return solution
-end
-
-
-function generate_ed_solutions(;days, kwargs...)
-    function generate_multipliers_configurations(μs)
-        mu_to_string(x) = isinteger(x) ? string(Int(x)) : replace(string(x), "." => "_")
-        return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
-    end
-    folders = get(kwargs, :folders, [(get(kwargs, :input_folder, G_input_folder), get(kwargs, :output_folder, "./output"))])
-    for (input_folder, output_folder) in folders
-        for day in days
-            generate_ed_solutions_([day], input_folder, output_folder, generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
-        end
-        generate_post_processing_KPI_files(output_folder)
-    end
 end
 
 
@@ -261,6 +244,20 @@ function generate_post_processing_KPI_files(folder_path, folders_to_read_ = noth
     return out
 end
 
+function generate_ed_solutions(;days, kwargs...)
+    function generate_multipliers_configurations(μs)
+        mu_to_string(x) = isinteger(x) ? string(Int(x)) : replace(string(x), "." => "_")
+        return [Symbol("base_ramp_storage_envelopes_up_$(mu_to_string(μ))_dn_$(mu_to_string(μ))") for μ in μs]
+    end
+    folders = get(kwargs, :folders, [(get(kwargs, :input_folder, G_input_folder), get(kwargs, :output_folder, "./output"))])
+    for (input_folder, output_folder) in folders
+        for day in days
+            generate_ed_solutions_([day], input_folder, output_folder, generate_multipliers_configurations(get(kwargs, :μs, nothing)); kwargs...)
+        end
+        generate_post_processing_KPI_files(output_folder)
+    end
+end
+
 function generate_ed_solutions_(days, input_folder, output_folder, configurations; kwargs...)
     function get_reference_configuration(k, configurations)
         i = first(findall(x->x == k , configurations))
@@ -281,7 +278,7 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         # :VLOL => get(kwargs, :VLOL, 1e4),
         # :VLGEN => get(kwargs, :VLGEN, 0),
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
-        # :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
+        :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),
         # :naive_envelopes => get(kwargs, :naive_envelopes, false),
         :variables_to_constrain => get(kwargs, :variables_to_constrain, [:GEN]),
@@ -310,8 +307,7 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
             gen_variable_multi_df;
             config...
         )
-        
-        s_uc[(day,k)] = get_model_solution(uc, gen_df, loads_multi_df, gen_variable_multi_df; config...)
+        s_uc[(day,k)] = get_model_solution(uc, gen_df, gen_variable_multi_df; loads = loads_multi_df, config...)
         s_ed[(day,k)] = solve_economic_dispatch_get_solution(
             uc,
             gen_df,
@@ -336,6 +332,37 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         solution_to_parquet(s_ed, "s_ed", folder_path)
     end
     return s_uc, s_ed
+end
+
+function generate_suc_solutions(;days, kwargs...)
+    function generate_suc_solutions_(day, input_folder, output_folder; kwargs...)
+        
+        gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, G_ε, G_ρ)
+        scenarios = load_scenarios(day, input_folder, loads_multi_df, required_reserve)
+        config = Dict(:storage => storage_df)
+        suc = solve_unit_commitment(
+            gen_df,
+            loads_multi_df,
+            gen_variable_multi_df,
+            scenarios;
+            expected_min_SOE = expected_min_SOE,
+            config...
+            )
+        s_suc =  get_model_solution(suc, gen_df, gen_variable_multi_df; scenarios = scenarios, config...)
+        # merge_solutions(s_suc, [:day])
+        if write
+            if !isdir(output_folder) mkdir(output_folder) end
+            folder_path = joinpath(output_folder,"n_$(join(day,"-"))")
+            solution_to_parquet(s_suc, "s_suc", folder_path)
+        end
+    end
+    write = get(kwargs, :write, true)
+    expected_min_SOE = get(kwargs, :expected_min_SOE, false)    
+    folders = get(kwargs, :folders, [(get(kwargs, :input_folder, nothing), get(kwargs, :output_folder, nothing))])
+    for (input_folder, output_folder) in folders, day in days
+        generate_suc_solutions_(day, input_folder, output_folder; kwargs...)
+        # generate_post_processing_KPI_files(output_folder)
+    end 
 end
 
 function run()

@@ -341,6 +341,8 @@ function add_reserve_constraints(model, reserve, loads, gen_df, storage::Union{D
         )
 
         if !bidirectional_storage_reserve
+            U = model[:U]
+            D = model[:D]
             for s in S, t in T
                 fix(RESUPCH[s,t], 0, force = true)
                 fix(RESDNDIS[s,t], 0, force = true)

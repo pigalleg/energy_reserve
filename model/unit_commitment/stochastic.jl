@@ -10,6 +10,7 @@ function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
     demand = scenarios.demand
     model = Model(Gurobi.Optimizer)
     set_optimizer_attribute(model, "MIPGap", mip_gap)
+    @variable(model, MIPGap in Parameter(mip_gap))
     # set_optimizer_attribute(model, "LogFile", "./output/log_file.txt")
     set_optimizer_attribute(model, "OutputFlag", 1)
 
@@ -41,7 +42,7 @@ function SUC(gen_df, gen_variable, scenarios, mip_gap, VLOL = 10^4, VLGEN = 0)
       # TODO: add delta_T
     
     add_OPEX(model, gen_df, sets, scenarios, VLOL, VLGEN)
-    
+
     @objective(model, Min,  #TODO: move at the end of the constructor
         model[:OPEX]
     )
@@ -114,15 +115,14 @@ function add_OPEX(model, gen_df, sets, scenarios, VLOL, VLGEN)
     #     sum(prob[prob.scenario .== σ,:probability][1]*(model[:ScenarioOperationalCost][σ]) for σ in Σ)
     # )
 
-    @expression(model, VLOL[σ in Σ],
+    @expression(model, LOLCost[σ in Σ],
         sum(VLOL[t]*LOL[t,σ] for t in T)
     )
-
     # @expression(model, VOLL[σ in Σ],
     #     sum(prob[prob.scenario .== σ,:probability][1]*(model[:ScenarioVOLL][σ]) for σ in Σ)
     # )
 
-    @expression(model, VLGEN[σ in Σ],
+    @expression(model, LGENCost[σ in Σ],
         sum(VLGEN[t]*LGEN[t,σ] for t in T)
     )
     # @expression(model, VOLL[σ in Σ],
@@ -130,9 +130,10 @@ function add_OPEX(model, gen_df, sets, scenarios, VLOL, VLGEN)
     # )
 
     @expression(model, OPEX,
-        sum(prob[prob.scenario .== σ,:probability][1]*(model[:StartupFixedCost][σ] + model[:OperationalCost][σ] + model[:VLOL][σ] + model[:VLGEN][σ]) for σ in Σ)
+        sum(prob[prob.scenario .== σ,:probability][1]*(model[:StartupFixedCost][σ] + model[:OperationalCost][σ] + model[:LOLCost][σ] + model[:LGENCost][σ]) for σ in Σ)
     )
-
+    @variable(model, VLOL[t in keys(VLOL)] in Parameter(VLOL[t])) # for post-processing purposes
+    @variable(model, VLGEN[t in keys(VLGEN)] in Parameter(VLGEN[t])) # for post-processing purposes
 end
 
 function add_capacity_constraints(model, gen_df, gen_variable, sets)

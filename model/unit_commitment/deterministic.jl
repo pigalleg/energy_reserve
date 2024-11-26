@@ -600,14 +600,17 @@ function add_energy_envelope_constraints(model, storage, μ_up, μ_dn, sets)
     SOE = model[:SOE]
     S = axes(SOE)[1]
     T = sets.T
+
+    T_incr = axes(SOE)[2]
+    
     ERESUPCH = model[:ERESUPCH]
     ERESDNCH = model[:ERESDNCH]
     ERESUPDIS = model[:ERESUPDIS]
     ERESDNDIS = model[:ERESDNDIS]
     
     @variables(model, begin
-        ESOEUP[S, j in T, t in T; j <= t] >= 0
-        ESOEDN[S, j in T, t in T; j <= t] >= 0
+        ESOEUP[S, j in T_incr, t in T_incr; j <= t] >= 0
+        ESOEDN[S, j in T_incr, t in T_incr; j <= t] >= 0
     end)
     @constraint(model, ESOEUpEvol[s in S, j in T, t in T; j <= t],
         ESOEUP[s,j,t]  == SOE[s,t] + μ_dn*ERESDNCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] + μ_dn*ERESDNDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
@@ -615,7 +618,22 @@ function add_energy_envelope_constraints(model, storage, μ_up, μ_dn, sets)
     @constraint(model, ESOEDnEvol[s in S, j in T, t in T; j <= t], 
         ESOEDN[s,j,t]  == SOE[s,t] - μ_up*ERESUPCH[s,j,t]*storage[storage.r_id .== s,:charge_efficiency][1] - μ_up*ERESUPDIS[s,j,t]/storage[storage.r_id .== s,:discharge_efficiency][1]
     )
-    
+
+    # ESOEUP[T_initial,T_initial] = SOE[T_initial]
+    @constraint(model, SOEUP_0[s in S, t in T_incr],
+        ESOEUP[s,T_incr[1],T_incr[1]] == SOE[s,T_incr[1]]
+    )
+    # ESOEDN[T_initial,T_initial] = SOE[T_initial]
+    @constraint(model, SOEDN_0[s in S, t in T_incr],
+        ESOEDN[s,T_incr[1], T_incr[1]] == SOE[s,T_incr[1]]
+    )
+    @constraint(model, SOEUPEvol_0[s in S, t in T],
+        ESOEUP[s,T_incr[1],t] == ESOEUP[s,T[1],t]
+    )
+    @constraint(model, SOEDNEvol_0[s in S, t in T],
+        ESOEDN[s,T_incr[1],t] == ESOEDN[s,T[1],t]
+    )
+
     # SOEUP, SOEDN <=SOE_max
     @constraint(model, ESOEUPMax[s in S, j in T, t in T; j <= t],
         ESOEUP[s,j,t] <= storage[storage.r_id .== s,:max_energy_mwh][1]

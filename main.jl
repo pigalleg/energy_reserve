@@ -276,7 +276,7 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         :VRESERVE => get(kwargs, :VRESERVE, 1e-6),
         # :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
         # :VLOL => get(kwargs, :VLOL, 1e4),
-        # :VLGEN => get(kwargs, :VLGEN, 0),
+        :VLGEN => get(kwargs, :VLGEN, 0),
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
         :constrain_SOE_by_envelopes => get(kwargs, :constrain_SOE_by_envelopes, false),

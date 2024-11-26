@@ -101,7 +101,7 @@ function constrain_decision_variables(model, constrain_SOE_by_envelopes::Bool, c
     variables_to_fix = [(model[var], value.(model[var])) for var in variables_to_fix if haskey(model, var)] # values extraction
     if constrain_SOE_by_envelopes # values extraction
         # envelopes for ED
-        SOEUP_value, SOEDN_value = generate_envelopes(model) # values extraction
+        E_SOEUP_value, E_SOEDN_value = generate_envelopes(model) # values extraction
     end
     if constrain_dispatch # assumes either ERESUP or RESUP exists
         constrain_by_energy = haskey(model, :ERESUP) # determines whether reserves or energy reserves
@@ -119,8 +119,8 @@ function constrain_decision_variables(model, constrain_SOE_by_envelopes::Bool, c
        
     end
     if constrain_SOE_by_envelopes
-        constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
-        add_envelopes_ED(model, SOEUP_value, SOEDN_value) # to recover it as output
+        constrain_SOE_to_envelopes(model, E_SOEUP_value, E_SOEDN_value)
+        add_envelopes_ED(model, E_SOEUP_value, E_SOEDN_value) # to recover it as output
     end
     fix_decision_variables(model, variables_to_fix, remove_variables_from_objective)
 end
@@ -216,70 +216,101 @@ function add_envelopes_UC(model)
     end
 end
 
-function add_envelopes_ED(model, SOEUP_value, SOEDN_value)
+function add_envelopes_ED(model, E_SOEUP_value, E_SOEDN_value)
     # ED envelopes
-    remove_variable_constraint(model, :SOEUP)
-    @expression(model, SOEUP, SOEUP_value)
-    remove_variable_constraint(model, :SOEDN)
-    @expression(model, SOEDN, SOEDN_value)
+    if haskey(model, :SOEUP)
+        remove_variable_constraint(model, :SOEUP)
+        @expression(model, SOEUP, E_SOEUP_value)
+        remove_variable_constraint(model, :SOEDN)
+        @expression(model, SOEDN, E_SOEDN_value)
+    elseif haskey(model, :ESOEUP)
+        remove_variable_constraint(model, :ESOEUP)
+        @expression(model, ESOEUP, E_SOEUP_value)
+        remove_variable_constraint(model, :ESOEDN)
+        @expression(model, ESOEDN, E_SOEDN_value)
+    end
 end
 
 function generate_envelopes(model)
-    #TODO: extend to energy envelopes
+    function generate_envelopes()
+        RESDNCH = model[:RESDNCH]
+        RESDNDIS = model[:RESDNDIS]
+        RESUPCH = model[:RESUPCH]
+        RESUPDIS = model[:RESUPDIS]
+        # SOEPUP_value = +Array(value.(CH)).*η_ch + (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis).* μ_dn' # approach 3
+        # SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) # For T[1]-1 no reserves are activated
+        # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2)
+        SOEPUP_value = (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis).*μ_dn' #approach 1&2
+        SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) #  #approach 1&2
+        SOEPUP_value = Array(value.(SOE)) + cumsum(SOEPUP_value; dims = 2) # approach 1
+        # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2) # approach 2
+
+        # SOEPDN_value = -Array(value.(DIS)).*inv_η_dis -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up'# approach 3
+        # SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value)
+        # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2)
+
+        SOEPDN_value = -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up' #approach 1&2
+        SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value) # approach 1&2
+        SOEPDN_value = Array(value.(SOE))  + cumsum(SOEPDN_value; dims = 2) # approach 1
+        # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2) # approach 2
+
+        SOEMax_value = hcat(Array(normalized_rhs.(model[:SOEMax]))[:,1], Array(normalized_rhs.(model[:SOEMax]))) # adding extra column for T[1]-1
+        SOEMin_value = hcat(Array(normalized_rhs.(model[:SOEMin]))[:,1], Array(normalized_rhs.(model[:SOEMin])))
+        
+        SOEPUP_value = min.(SOEPUP_value, SOEMax_value)
+        SOEPDN_value = max.(SOEPDN_value, SOEMin_value)
+        return Containers.DenseAxisArray(SOEPUP_value, S, T_incr), Containers.DenseAxisArray(SOEPDN_value, S, T_incr)
+    end
+
+    function generate_energy_envelopes()
+        #TODO: this function differs from previous one as it does not recalculate the envelopes. It would be good to harmonize....
+        return value.(model[:ESOEUP]), value.(model[:ESOEDN])
+    end
     CH = model[:CH]
     DIS = model[:DIS]
-    RESDNCH = model[:RESDNCH]
-    RESDNDIS = model[:RESDNDIS]
-    RESUPCH = model[:RESUPCH]
-    RESUPDIS = model[:RESUPDIS]
     S = axes(CH)[1]
     T = axes(CH)[2]
     SOE = model[:SOE]
     T_incr = axes(SOE)[2]
 
-    μ_up, μ_dn = get_multipliers(model)
     SOE_constraint_list = [constraint_object.(model[:SOEEvol][s,T[1]]).func for s in S]
     η_ch =-map(coefficient, SOE_constraint_list, Array(CH[:,T[1]]))
     inv_η_dis = map(coefficient, SOE_constraint_list, Array(DIS[:,T[1]]))
-
-    # SOEPUP_value = +Array(value.(CH)).*η_ch + (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis).* μ_dn' # approach 3
-    # SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) # For T[1]-1 no reserves are activated
-    # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2)
     
-    SOEPUP_value = (Array(value.(RESDNCH)).*η_ch + Array(value.(RESDNDIS)).*inv_η_dis)#.*μ_dn' #approach 1&2
-    SOEPUP_value = hcat(zeros(1,size(SOEPUP_value)[1])', SOEPUP_value) #  #approach 1&2
-    SOEPUP_value = Array(value.(SOE))  + cumsum(SOEPUP_value; dims = 2) # approach 1
-    # SOEPUP_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPUP_value; dims = 2) # approach 2
-
-    # SOEPDN_value = -Array(value.(DIS)).*inv_η_dis -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis).* μ_up'# approach 3
-    # SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value)
-    # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2)
-
-    SOEPDN_value = -(Array(value.(RESUPCH)).*η_ch + Array(value.(RESUPDIS)).*inv_η_dis)#.* μ_up' #approach 1&2
-    SOEPDN_value = hcat(zeros(1,size(SOEPDN_value)[1])', SOEPDN_value) # approach 1&2
-    SOEPDN_value = Array(value.(SOE))  + cumsum(SOEPDN_value; dims = 2) # approach 1
-    # SOEPDN_value = [value(SOE[s,T_incr[1]]) for s in S, t in T_incr] + cumsum(SOEPDN_value; dims = 2) # approach 2
-
-    SOEMax_value = hcat(Array(normalized_rhs.(model[:SOEMax]))[:,1], Array(normalized_rhs.(model[:SOEMax]))) # adding extra column for T[1]-1
-    SOEMin_value = hcat(Array(normalized_rhs.(model[:SOEMin]))[:,1], Array(normalized_rhs.(model[:SOEMin])))
-    
-    SOEPUP_value = min.(SOEPUP_value, SOEMax_value)
-    SOEPDN_value = max.(SOEPDN_value, SOEMin_value)
-    return Containers.DenseAxisArray(SOEPUP_value, S, T_incr), Containers.DenseAxisArray(SOEPDN_value, S, T_incr)
-    
+    if haskey(model, :SOEUP)
+        μ_up, μ_dn = get_multipliers(model)
+        return  generate_envelopes()
+    else
+        return generate_energy_envelopes()
+    end
 end
 
-function constrain_SOE_to_envelopes(model, SOEUP_value, SOEDN_value)
+function constrain_SOE_to_envelopes(model, E_SOEUP_value, E_SOEDN_value)
     println("Constraining SOE...")
     SOE = model[:SOE]
     S = axes(SOE)[1]
     T_incr = axes(SOE)[2]
-    @constraint(model, SOEEnvelopeUP[s in S, t in T_incr],
-        SOE[s,t] <= SOEUP_value[s,t]
-    )
-    @constraint(model, SOEEnvelopeDN[s in S, t in T_incr],
-        SOE[s,t] >= SOEDN_value[s,t]
-    )
+    if haskey(model, :SOEUP)
+        @constraint(model, SOEEnvelopeUP[s in S, t in T_incr],
+            SOE[s,t] <= E_SOEUP_value[s,t]
+        )
+        @constraint(model, SOEEnvelopeDN[s in S, t in T_incr],
+            SOE[s,t] >= E_SOEDN_value[s,t]
+        )
+    else
+        @constraint(model, SOEEnvelopeUP[s in S, t in T_incr],
+            SOE[s,t] <= maximum(E_SOEUP_value[s,:,t]) # SOE[s,t] <= E_SOEUP_value[s,j,t]
+        )
+        @constraint(model, SOEEnvelopeDN[s in S, t in T_incr],
+            SOE[s,t] >= minimum(E_SOEDN_value[s,:,t]) # SOE[s,t] >= E_SOEDN_value[s,j,t]
+        )
+        # @constraint(model, SOEEnvelopeUP[s in S, j in T_incr, t in T_incr; j <= t],
+        #     SOE[s,t] <= E_SOEUP_value[s,j,t]
+        # )
+        # @constraint(model, SOEEnvelopeDN[s in S, j in T_incr, t in T_incr; j <= t],
+        #     SOE[s,t] >= E_SOEDN_value[s,j,t]
+        # )
+    end   
 end
 
 function constraint_SOE_final_to_envelopes_UC(model)
@@ -296,7 +327,7 @@ function constraint_SOE_final_to_envelopes_UC(model)
         @constraint(model, SOEFinalUp[s in S],
             SOE[s,T[end]] <= model[:SOEUP_UC][s,T[end]]
         )
-    elseif haskey(model, :ESOEUP)
+    else
         @constraint(model, SOEFinalDn[s in S],
             SOE[s,T[end]] >= minimum(model[:ESOEDN_UC][s,:,T[end]])
         )

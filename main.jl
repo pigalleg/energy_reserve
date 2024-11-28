@@ -79,7 +79,7 @@ config = (
 #         # storage_envelopes = true,
 #         # μ_up = 1,
 #         # μ_dn = 1,
-#     )
+#     )                   
 #     return config
 # end
 
@@ -88,7 +88,7 @@ function load_deterministic_data(day, input_folder, ε=nothing, ρ=nothing)
     # required_reserve = generate_reserves(loads_multi_df, gen_variable_multi_df, reserve)
     file = joinpath(input_folder, G_UC_DATA, "Reserve.csv")
     if isfile(file)
-        println("Reserve file found, loading reserves...")
+        println("Reserve file found, loading reserves...")                            
         required_reserve = filter_day(day, CSV.read(file, DataFrame))
     else
         println("Reserve file not found, generating reserves...")
@@ -276,6 +276,7 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         :VRESERVE => get(kwargs, :VRESERVE, 1e-6),
         # :remove_variables_from_objective => get(kwargs, :remove_variables_from_objective, false),
         # :VLOL => get(kwargs, :VLOL, 1e4),
+        :mip_gap => get(kwargs, :mip_gap, 1e-8), 
         :VLGEN => get(kwargs, :VLGEN, 0),
         :thermal_reserve =>  get(kwargs, :thermal_reserve, false),
         :bidirectional_storage_reserve => get(kwargs, :bidirectional_storage_reserve, true),
@@ -283,7 +284,6 @@ function generate_ed_solutions_(days, input_folder, output_folder, configuration
         # :naive_envelopes => get(kwargs, :naive_envelopes, false),
         :variables_to_constrain => get(kwargs, :variables_to_constrain, [:GEN]),
         :storage_reserve_repartition =>  get(kwargs, :storage_reserve_repartition, 1),
-        # :stochastic => get(kwargs, :stochastic, false),
     )
     # configurations = vcat(configurations, [:base_ramp_storage_energy_reserve_cumulated])
     s_uc = Dict()
@@ -339,7 +339,10 @@ function generate_suc_solutions(;days, kwargs...)
         
         gen_df, loads_multi_df, random_loads_multi_df, gen_variable_multi_df, storage_df, required_reserve = load_deterministic_data(day, input_folder, G_ε, G_ρ)
         scenarios = load_scenarios(day, input_folder, loads_multi_df, required_reserve)
-        config = Dict(:storage => storage_df)
+        config = Dict(
+            :storage => storage_df,
+            :VLGEN => get(kwargs, :VLGEN, 0),
+            )
         suc = solve_unit_commitment(
             gen_df,
             loads_multi_df,

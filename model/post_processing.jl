@@ -257,8 +257,8 @@ end
 function get_enriched_objective_value(enriched_solution, gen_df, storage, parameters)
     #TODO: deal with missing values
     function check()
-        aux = combine(groupby(cost, intersect([:scenario], propertynames(cost))), [:production_cost, :start_cost] .=> (x -> sum(skipmissing(x))), renamecols = false)
-        sum_cost = mean(aux.production_cost.+aux.start_cost)
+        aux = combine(groupby(cost, intersect([:scenario], propertynames(cost))), [:production_cost, :fixed_cost, :start_cost] .=> (x -> sum(skipmissing(x))), renamecols = false)
+        sum_cost = mean(aux.production_cost.+.+aux.fixed_cost.+aux.start_cost)
         if !isapprox(enriched_solution[:scalar].OPEX[1], sum_cost; rtol =  parameters.MIPGap)
             error("Start and operational cost missmatch with OPEX")
         end
@@ -282,9 +282,8 @@ function get_enriched_objective_value(enriched_solution, gen_df, storage, parame
         )
 
     cost.start_cost = cost.start_cost_per_mw .* cost.existing_cap_mw .* cost.start
-    cost.production_cost = 
-        (cost.heat_rate_mmbtu_per_mwh .* cost.fuel_cost + cost.var_om_cost_per_mwh) .* cost.production_MW +
-        cost.fixed_om_cost_per_mw_per_hour .* cost.existing_cap_mw .* replace(cost.commit, missing => 1)
+    cost.production_cost = (cost.heat_rate_mmbtu_per_mwh .* cost.fuel_cost + cost.var_om_cost_per_mwh) .* cost.production_MW 
+    cost.fixed_cost = cost.fixed_om_cost_per_mw_per_hour .* cost.existing_cap_mw .* replace(cost.commit, missing => 1)
     select!(cost,Not(union(cost_fields,fields_to_remove)))
     
     if :storage in keys(enriched_solution)

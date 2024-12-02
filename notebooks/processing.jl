@@ -65,7 +65,7 @@ function calculate_supply_demand(solution, group_by = [:hour, :resource] )
   
 
   if haskey(solution,:storage)
-      aux = combine(groupby(solution.storage, group_by), [:discharge_MW => sum, :charge_MW => sum], renamecols=false)
+      aux = combine(groupby(coalesce.(solution.storage,0), group_by), [:discharge_MW => sum, :charge_MW => sum], renamecols=false) #we can do coalesce because we are summing
       rename!(aux, [:discharge_MW => :production_MW, :charge_MW => :demand_MW])
       append!(supply, aux[!, push!(copy(group_by), :production_MW)])
       append!(demand,  aux[!,push!(copy(group_by), :demand_MW)], promote = true)

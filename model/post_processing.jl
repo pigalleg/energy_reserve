@@ -67,7 +67,7 @@ function get_solution(model, stochastic = false)
 end
 
 function get_solution_variables(model, stochastic)
-    variables_to_get = [:GEN, :COMMIT, :SHUT, :START, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH]   
+    variables_to_get = [:GEN, :COMMIT, :SHUT, :START, :CH, :DIS, :SOE, :SOEUP, :SOEDN, :ESOEUP, :ESOEDN, :RESUP, :CHRESDNCH, :CHRESUPCH, :DISRESUPDIS, :DISRESDNDIS, :RESDN, :ERESUP, :ERESDN, :LOL, :LGEN, :SOEUP_EC, :SOEDN_EC, :RESUPDIS, :RESUPCH, :RESDNDIS, :RESDNCH]   
 
     return NamedTuple(k => value_to_df(model[k], stochastic) for k in intersect(keys(object_dictionary(model)), variables_to_get))
 end
@@ -192,6 +192,17 @@ function get_enriched_storage(solution, data)
             rename(solution.SOEDN, :value => :envelope_down_MWh),
             on = join_on
         )
+    end
+    if haskey(solution, :ESOEUP) & haskey(solution, :ESOEDN)
+        aux.hour_i = aux.hour
+        join_on = [:r_id, :hour_i, :hour]
+        aux2 = innerjoin(
+            rename(solution.ESOEUP, :value => :envelope_up_MWh),
+            rename(solution.ESOEDN, :value => :envelope_down_MWh),
+            on = join_on
+        
+        )
+        aux = outerjoin(aux, aux2, on = join_on)
     end
     # if haskey(solution, :SOEUP_ED) & haskey(solution, :SOEDN_EC) # deprecated
     #     aux = innerjoin(
